@@ -4,22 +4,17 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#25C8FF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M24,38 A34,34 0,0 1,84 38" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#25C8FF"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M84,70 A34,34 0,0 1,24 70" />
-    <path
-        android:fillColor="#B8FF2C"
-        android:pathData="M60,19 L29,57 L29,65 L55,65 L55,84 L67,84 L67,65 L78,65 L78,54 L67,54 L67,19 Z M55,38 L55,54 L42,54 Z" />
-    <path
-        android:fillColor="#25C8FF"
-        android:pathData="M80,22 L86,22 L86,28 L80,28 Z" />
+    <!-- Segmented green-to-red speedometer arc -->
+    <path android:fillColor="#00000000" android:strokeColor="#39F51D" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M18,52 A35,35 0,0 1,29,28" />
+    <path android:fillColor="#00000000" android:strokeColor="#7DFF16" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M29,28 A35,35 0,0 1,45,19" />
+    <path android:fillColor="#00000000" android:strokeColor="#D5FF12" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M45,19 A35,35 0,0 1,63,18" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFB21B" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M63,18 A35,35 0,0 1,79,26" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF5B18" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M79,26 A35,35 0,0 1,90,42" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF2638" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M90,42 A35,35 0,0 1,92,57" />
+    <!-- Metallic angular 4 -->
+    <path android:fillColor="#F7FBFF" android:pathData="M62,29 L28,61 L27,68 L49,68 L46,87 L57,87 L60,68 L74,68 L76,58 L62,58 Z M52,45 L51,58 L39,58 Z" />
+    <path android:fillColor="#AAB8CA" android:pathData="M62,29 L52,45 L51,58 L39,58 L28,61 L27,68 L49,68 L46,87 L57,87 L60,68 L74,68 L76,58 L62,58 Z" />
+    <!-- Cyan needle and pivot -->
+    <path android:fillColor="#25E7FF" android:pathData="M16,62 L59,60 L88,47 L62,64 L16,66 Z" />
+    <path android:fillColor="#00DFFF" android:pathData="M53,61 A3.5,3.5 0,1 0,60 61 A3.5,3.5 0,1 0,53 61 Z" />
 </vector>
