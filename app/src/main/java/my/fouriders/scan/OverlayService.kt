@@ -228,7 +228,9 @@ class OverlayService : Service() {
                     }
                 }
                 MotionEvent.ACTION_UP -> if (!dragged) {
-                    if (e.eventTime - e.downTime > 700) showRaw() else onPillTap()
+                    if (e.eventTime - e.downTime > 700) showRaw()
+                    else if (state == St.RESULT && e.x > tv.width - dp(52)) rescan()
+                    else onPillTap()
                 }
             }
             true
@@ -245,6 +247,12 @@ class OverlayService : Service() {
             cornerRadius = dp(26).toFloat()
             setColor(color)
         }
+    }
+
+    private fun rescan() {
+        closeCard()
+        Session.reset()
+        capture()
     }
 
     private fun onPillTap() {
@@ -420,7 +428,7 @@ class OverlayService : Service() {
 
     private fun showResult() {
         val v = verdict()
-        val label = if (v.rpk != null) "${v.word}  ${f2(v.rpk)}/km" else v.word
+        val label = if (v.rpk != null) "${v.word}  ${f2(v.rpk)}/km   ↻" else "${v.word}   ↻"
         setState(St.RESULT, label, v.color)
     }
 
@@ -535,11 +543,7 @@ class OverlayService : Service() {
         row.addView(Button(this).apply {
             text = "Scan again"
             isAllCaps = false
-            setOnClickListener {
-                closeCard()
-                Session.reset()
-                setState(St.IDLE, "Scan", BLUE)
-            }
+            setOnClickListener { rescan() }
         }, LinearLayout.LayoutParams(0, dp(46), 1f))
         row.addView(Button(this).apply {
             text = "Minimise"
