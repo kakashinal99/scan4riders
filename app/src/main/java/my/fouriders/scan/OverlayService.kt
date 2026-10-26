@@ -53,13 +53,13 @@ class OverlayService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "scan"
-        private const val BLUE = 0xFF3454E8.toInt()
-        private const val GREY = 0xFF5B6B86.toInt()
-        private const val AMBER = 0xFFB8650A.toInt()
-        private const val GREEN = 0xFF0B8A5F.toInt()
-        private const val ORANGE = 0xFFB85C00.toInt()
-        private const val RED = 0xFFC9314F.toInt()
-        private const val INK = 0xFF0F1A2E.toInt()
+        private const val BLUE = 0xFF25C8FF.toInt()
+        private const val GREY = 0xFF71809B.toInt()
+        private const val AMBER = 0xFFFFB547.toInt()
+        private const val GREEN = 0xFFB8FF2C.toInt()
+        private const val ORANGE = 0xFFFFB547.toInt()
+        private const val RED = 0xFFFF5268.toInt()
+        private const val INK = 0xFFEAF1FF.toInt()
     }
 
     private enum class St { IDLE, READING, ROUTING, NEED_MORE, RESULT, ERROR }
@@ -483,8 +483,8 @@ class OverlayService : Service() {
             setPadding(dp(16), dp(14), dp(16), dp(14))
             background = GradientDrawable().apply {
                 cornerRadius = dp(20).toFloat()
-                setColor(0xFFF4F6FA.toInt())
-                setStroke(dp(1), 0xFFC9D2E3.toInt())
+                setColor(0xFF0D1525.toInt())
+                setStroke(dp(1), 0xFF23334D.toInt())
             }
         }
         val head = LinearLayout(this).apply {
@@ -593,7 +593,7 @@ class OverlayService : Service() {
             setPadding(dp(14), dp(12), dp(14), dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = dp(18).toFloat()
-                setColor(0xFFF4F6FA.toInt())
+                setColor(0xFF0D1525.toInt())
             }
         }
         box.addView(tv("Raw text (debug)", 12f, GREY))
