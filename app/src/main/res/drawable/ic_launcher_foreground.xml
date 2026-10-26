@@ -4,17 +4,31 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- Segmented green-to-red speedometer arc -->
-    <path android:fillColor="#00000000" android:strokeColor="#39F51D" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M18,52 A35,35 0,0 1,29,28" />
-    <path android:fillColor="#00000000" android:strokeColor="#7DFF16" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M29,28 A35,35 0,0 1,45,19" />
-    <path android:fillColor="#00000000" android:strokeColor="#D5FF12" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M45,19 A35,35 0,0 1,63,18" />
-    <path android:fillColor="#00000000" android:strokeColor="#FFB21B" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M63,18 A35,35 0,0 1,79,26" />
-    <path android:fillColor="#00000000" android:strokeColor="#FF5B18" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M79,26 A35,35 0,0 1,90,42" />
-    <path android:fillColor="#00000000" android:strokeColor="#FF2638" android:strokeWidth="4.5" android:strokeLineCap="butt" android:pathData="M90,42 A35,35 0,0 1,92,57" />
-    <!-- Metallic angular 4 -->
-    <path android:fillColor="#F7FBFF" android:pathData="M62,29 L28,61 L27,68 L49,68 L46,87 L57,87 L60,68 L74,68 L76,58 L62,58 Z M52,45 L51,58 L39,58 Z" />
-    <path android:fillColor="#AAB8CA" android:pathData="M62,29 L52,45 L51,58 L39,58 L28,61 L27,68 L49,68 L46,87 L57,87 L60,68 L74,68 L76,58 L62,58 Z" />
-    <!-- Cyan needle and pivot -->
-    <path android:fillColor="#25E7FF" android:pathData="M16,62 L59,60 L88,47 L62,64 L16,66 Z" />
-    <path android:fillColor="#00DFFF" android:pathData="M53,61 A3.5,3.5 0,1 0,60 61 A3.5,3.5 0,1 0,53 61 Z" />
-</vector>
+    <!-- Neon segmented speedometer -->
+    <path android:fillColor="#00000000" android:strokeColor="#39F51D" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M20,48 A34,34 0,0 1,29,29" />
+    <path android:fillColor="#00000000" android:strokeColor="#8CFF18" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M31,27 A34,34 0,0 1,45,19" />
+    <path android:fillColor="#00000000" android:strokeColor="#E5FF16" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M48,18 A34,34 0,0 1,63,19" />
+    <path android:fillColor="#00000000" android:strokeColor="#FFB31B" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M67,20 A34,34 0,0 1,79,28" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF681B" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M82,31 A34,34 0,0 1,88,44" />
+    <path android:fillColor="#00000000" android:strokeColor="#FF2E42" android:strokeWidth="4.2" android:strokeLineCap="round" android:pathData="M90,49 A34,34 0,0 1,90,57" />
+
+    <!-- Chrome-style angular 4 -->
+    <path android:fillColor="#101722" android:pathData="M62,27 L27,59 L25,68 L47,68 L44,82 L56,82 L59,68 L73,68 L75,58 L61,58 Z" />
+    <path android:fillColor="#F5F8FC" android:pathData="M62,27 L27,59 L25,68 L47,68 L44,82 L56,82 L59,68 L73,68 L75,58 L61,58 Z M51,43 L50,58 L39,58 Z" />
+    <path android:fillColor="#AAB8C9" android:pathData="M62,27 L51,43 L50,58 L39,58 L27,59 L25,68 L47,68 L44,82 L56,82 L59,68 L73,68 L75,58 L61,58 Z" />
+    <path android:fillColor="#FFFFFF" android:pathData="M59,33 L34,57 L45,57 L58,44 Z" />
+
+    <!-- Electric cyan speed needle -->
+    <path android:fillColor="#063C51" android:pathData="M17,60 L58,58 L87,46 L63,63 L17,65 Z" />
+    <path android:fillColor="#25E7FF" android:pathData="M17,59 L58,58 L87,46 L64,62 L17,64 Z" />
+    <path android:fillColor="#00DFFF" android:pathData="M52,60 A3.5,3.5 0,1 0,59 60 A3.5,3.5 0,1 0,52 60 Z" />
+
+    <!-- Compact RIDERS wordmark, drawn as vector paths -->
+    <path android:fillColor="#E8EEF6" android:pathData="M29,88 L29,96 L31,96 L31,93 L33,93 L35,96 L37,96 L34.5,92.8 L36,90.5 L35,88 Z M31,90 L33.5,90 L34,90.8 L33.5,91.5 L31,91.5 Z" />
+    <path android:fillColor="#E8EEF6" android:pathData="M39,88 L45,88 L45,90 L41,90 L41,91 L44.5,91 L44.5,93 L41,93 L41,94 L45,94 L45,96 L39,96 Z" />
+    <path android:fillColor="#E8EEF6" android:pathData="M47,88 L52,88 L54,90 L54,94 L52,96 L47,96 Z M49,90 L49,94 L51.5,94 L52,93.5 L52,90.5 L51.5,90 Z" />
+    <path android:fillColor="#E8EEF6" android:pathData="M56,88 L58,88 L58,96 L56,96 Z" />
+    <path android:fillColor="#E8EEF6" android:pathData="M60,88 L66,88 L66,90 L62,90 L62,91 L65.5,91 L65.5,93 L62,93 L62,94 L66,94 L66,96 L60,96 Z" />
+    <path android:fillColor="#E8EEF6" android:pathData="M68,88 L73,88 L75,90 L75,92 L73.5,93 L75,96 L72.5,96 L71,93.5 L70,93.5 L70,96 L68,96 Z M70,90 L70,91.5 L72,91.5 L72.5,91 L72,90 Z" />
+    <path android:fillColor="#25E7FF" android:pathData="M77,88 L83,88 L83,90 L79,90 L79,91 L82.5,91 L82.5,93 L79,93 L79,94 L83,94 L83,96 L77,96 Z" />
+  </vector>
