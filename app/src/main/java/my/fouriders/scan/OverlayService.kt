@@ -53,6 +53,7 @@ class OverlayService : Service() {
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "scan"
+        @Volatile var running = false
         private const val BLUE = 0xFF25C8FF.toInt()
         private const val GREY = 0xFF71809B.toInt()
         private const val AMBER = 0xFFFFB547.toInt()
@@ -181,6 +182,7 @@ class OverlayService : Service() {
             r.surface, null, handler
         )
         showPill()
+        running = true
     }
 
     // ---------- the chip ----------
@@ -629,6 +631,7 @@ class OverlayService : Service() {
     // ---------- cleanup ----------
 
     override fun onDestroy() {
+        running = false
         handler.removeCallbacksAndMessages(null)
         closeCard()
         closeRaw()
