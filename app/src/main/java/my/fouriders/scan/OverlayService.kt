@@ -53,6 +53,9 @@ class OverlayService : Service() {
     private var projection: MediaProjection? = null
     private var reader: ImageReader? = null
     private var display: VirtualDisplay? = null
+    private var held: Image? = null
+    private var frames = 0
+    private var lastErr = ""
     private val recognizer by lazy {
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
@@ -114,8 +117,21 @@ class OverlayService : Service() {
         val w = b.width()
         val h = b.height()
         val dpi = resources.displayMetrics.densityDpi
-        val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
+        val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3)
         reader = r
+        // Always keep the newest frame, so a still screen still has a picture to read.
+        r.setOnImageAvailableListener({ rd ->
+            try {
+                val im = rd.acquireLatestImage()
+                if (im != null) {
+                    held?.close()
+                    held = im
+                    frames++
+                }
+            } catch (e: Exception) {
+                lastErr = e.message ?: e.javaClass.simpleName
+            }
+        }, handler)
         // Android 14+ allows one virtual display per permission, so keep it alive.
         display = p.createVirtualDisplay(
             "scan", w, h, dpi,
@@ -188,18 +204,18 @@ class OverlayService : Service() {
         closePanel()
         bubble?.visibility = View.INVISIBLE // keep the bubble out of the picture
         handler.postDelayed({
-            val img: Image? = try {
-                reader?.acquireLatestImage()
-            } catch (e: Exception) {
-                null
-            }
+            val img: Image? = held
             bubble?.visibility = View.VISIBLE
             if (img == null) {
-                showPanel("No picture yet. Tap Scan again.")
+                showPanel("No picture yet. Frames seen: $frames. Error: ${lastErr.ifBlank { "none" }}")
                 return@postDelayed
             }
-            val bmp = toBitmap(img)
-            img.close()
+            val bmp = try {
+                toBitmap(img)
+            } catch (e: Exception) {
+                showPanel("Could not copy the picture: ${e.message}")
+                return@postDelayed
+            }
             showPanel("Reading...")
             recognizer.process(InputImage.fromBitmap(bmp, 0))
                 .addOnSuccessListener { showPanel(it.text.ifBlank { "No text found." }) }
@@ -291,6 +307,8 @@ class OverlayService : Service() {
         bubble?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         bubble = null
         display?.release()
+        held?.close()
+        held = null
         reader?.close()
         try { projection?.stop() } catch (_: Exception) {}
         recognizer.close()
