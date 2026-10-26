@@ -37,20 +37,20 @@ class MainActivity : Activity() {
             fitsSystemWindows = true
         }
         root.addView(TextView(this).apply {
-            text = "4riders Scan"
+            text = "4RIDERS  /  NIGHTSHIFT"
             textSize = 26f
-            setTextColor(Color.parseColor("#0F1A2E"))
+            setTextColor(Color.parseColor("#EAF1FF"))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
         })
         root.addView(TextView(this).apply {
-            text = "Reads a Grab order, finds the km on the map and shows a verdict."
+            text = "ORDER SCANNER  •  ROUTE + FARE VERDICT"
             textSize = 14f
-            setTextColor(Color.parseColor("#5B6B86"))
+            setTextColor(Color.parseColor("#8A9AB8"))
             setPadding(0, dp(6), 0, dp(14))
         })
         status = TextView(this).apply {
             textSize = 14f
-            setTextColor(Color.parseColor("#0F1A2E"))
+            setTextColor(Color.parseColor("#EAF1FF"))
             setPadding(0, 0, 0, dp(12))
         }
         root.addView(status)
@@ -64,7 +64,7 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "Your limits"
             textSize = 16f
-            setTextColor(Color.parseColor("#0F1A2E"))
+            setTextColor(Color.parseColor("#EAF1FF"))
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             setPadding(0, dp(16), 0, dp(6))
         })
@@ -78,12 +78,12 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply {
             text = "How to use: tap Start, allow screen recording and choose Share entire screen. Open the Grab order and tap the chip. If it asks you to scroll, scroll once and it reads again by itself. Long press the chip to see the raw text."
             textSize = 13f
-            setTextColor(Color.parseColor("#5B6B86"))
+            setTextColor(Color.parseColor("#8A9AB8"))
             setPadding(0, dp(16), 0, 0)
         })
         val sv = ScrollView(this)
         sv.addView(root)
-        sv.setBackgroundColor(Color.parseColor("#F4F6FA"))
+        sv.setBackgroundColor(Color.parseColor("#080D18"))
         setContentView(sv)
     }
 
@@ -111,7 +111,7 @@ class MainActivity : Activity() {
     private fun label(s: String) = TextView(this).apply {
         text = s
         textSize = 12f
-        setTextColor(Color.parseColor("#5B6B86"))
+        setTextColor(Color.parseColor("#8A9AB8"))
     }
 
     private fun field(hint: String, v: Float) = EditText(this).apply {
