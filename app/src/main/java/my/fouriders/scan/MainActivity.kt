@@ -67,6 +67,43 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("trace", null)
+        if (crash != null) showCrash(crash) else buildUi()
+    }
+
+    private fun showCrash(trace: String) {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            fitsSystemWindows = true
+            setBackgroundColor(Color.WHITE)
+        }
+        box.addView(TextView(this).apply {
+            text = "The app crashed last time. Send a screenshot of this to Claude."
+            textSize = 16f
+            setTextColor(Color.BLACK)
+            setTypeface(typeface, Typeface.BOLD)
+        })
+        val sv = ScrollView(this)
+        sv.addView(TextView(this).apply {
+            text = trace.take(3500)
+            textSize = 10f
+            setTextColor(Color.parseColor("#B00020"))
+            setPadding(0, dp(10), 0, dp(10))
+        })
+        box.addView(sv, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        box.addView(Button(this).apply {
+            text = "Clear and open the app"
+            isAllCaps = false
+            setOnClickListener {
+                getSharedPreferences("crash", Context.MODE_PRIVATE).edit().clear().commit()
+                recreate()
+            }
+        })
+        setContentView(box)
+    }
+
+    private fun buildUi() {
         val cfg = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         window.statusBarColor = BG1
         window.navigationBarColor = BG2
@@ -325,7 +362,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        refreshStatus()
+        if (::chipStatus.isInitialized) refreshStatus()
     }
 
     private fun handlerRefresh() {
@@ -344,7 +381,7 @@ class MainActivity : Activity() {
 
     override fun onPause() {
         super.onPause()
-        saveLimits()
+        if (::fMin.isInitialized) saveLimits()
     }
 
     private fun saveLimits() {
