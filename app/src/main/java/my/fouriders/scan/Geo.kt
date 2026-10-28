@@ -58,43 +58,88 @@ object Geo {
         }
     }
 
-    fun geocode(ctx: Context, s: Stop): P? {
-        val area = s.address.split(',').map { it.trim() }.filter { it.isNotEmpty() }.takeLast(4).joinToString(", ")
-        val tries = listOf(
-            "${s.name}, ${s.address}",
-            s.address,
-            "${s.name}, $area"
-        ).map { if (it.contains("Malaysia", ignoreCase = true)) it else "$it, Malaysia" }.distinct()
-        for (q in tries) viaGeocoder(ctx, q)?.let { return it }
-        for (q in tries.drop(1)) viaNominatim(q)?.let { return it }
+    /** level 0 = full address matched, 1 = approximate (street, name or area), 2 = postcode area only */
+    data class Hit(val p: P, val level: Int, val how: String)
+
+    private class Cand(val p: P, val postcode: String?)
+
+    private val unitPart = Regex("""^(no\.?|lot|unit|blok|block|level|lvl)?\s*\d+[a-z]?(\s*[&/\-]\s*\d+[a-z]?)*$""", RegexOption.IGNORE_CASE)
+
+    /** Straight-line km, used to sanity-check a found place against where you are. */
+    fun straight(a: P, b: P): Double {
+        val r = 6371.0
+        val dLat = Math.toRadians(b.lat - a.lat)
+        val dLon = Math.toRadians(b.lon - a.lon)
+        val h = sin(dLat / 2).pow(2) + cos(Math.toRadians(a.lat)) * cos(Math.toRadians(b.lat)) * sin(dLon / 2).pow(2)
+        return 2 * r * asin(sqrt(h))
+    }
+
+    /**
+     * Finds a stop in several steps, from the most exact search to the loosest, and checks every
+     * result against where you are (ref), so a same-named place in another city is not picked.
+     */
+    fun locate(ctx: Context, s: Stop, ref: P?): Hit? {
+        val post = Regex("""\b(\d{5})\b""").find(s.address)?.groupValues?.get(1)
+        val parts = s.address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val noUnit = parts.filterNot { unitPart.matches(it) }
+        val addr2 = noUnit.joinToString(", ")
+        val area = noUnit.filterNot { it == post }.takeLast(3).joinToString(", ")
+        val tail2 = noUnit.filterNot { it == post }.takeLast(2).joinToString(", ")
+        val tiers = listOf(
+            Triple(listOf("${s.name}, ${s.address}", s.address), 0, "found by the full address"),
+            Triple(listOf("${s.name}, $addr2", addr2), 1, "found by street, unit number dropped"),
+            Triple(listOf("${s.name}, $area" + (if (post != null) ", $post" else "")), 1, "found by name and area"),
+            Triple(if (post != null) listOf("$post, $tail2") else emptyList(), 2, "postcode area only")
+        )
+        for ((qs, level, how) in tiers) {
+            for (q in qs.map { withMy(it) }.distinct()) {
+                val cands = candidates(ctx, q)
+                val p = pick(cands, ref, post, if (level == 0) 60.0 else 120.0)
+                if (p != null) return Hit(p, level, how)
+            }
+        }
         return null
     }
 
-    @Suppress("DEPRECATION")
-    private fun viaGeocoder(ctx: Context, q: String): P? = try {
-        if (!Geocoder.isPresent()) {
-            null
-        } else {
-            val r = Geocoder(ctx, Locale.getDefault()).getFromLocationName(q, 1, 0.8, 99.5, 7.5, 119.5)
-            r?.firstOrNull()?.let { P(it.latitude, it.longitude) }
-        }
-    } catch (e: Exception) {
-        null
+    private fun withMy(q: String) = if (q.contains("Malaysia", ignoreCase = true)) q else "$q, Malaysia"
+
+    private fun pick(c: List<Cand>, ref: P?, post: String?, maxKm: Double): P? {
+        if (c.isEmpty()) return null
+        val near = if (ref == null) c else c.filter { straight(ref, it.p) <= maxKm }
+        if (near.isEmpty()) return null
+        val same = if (post != null) near.filter { it.postcode == post } else emptyList()
+        val use = if (same.isNotEmpty()) same else near
+        return (if (ref == null) use.first() else use.minByOrNull { straight(ref, it.p) })?.p
     }
 
-    private fun viaNominatim(q: String): P? = try {
+    private fun candidates(ctx: Context, q: String): List<Cand> {
+        val g = viaGeocoder(ctx, q)
+        return if (g.isNotEmpty()) g else viaNominatim(q)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun viaGeocoder(ctx: Context, q: String): List<Cand> = try {
+        if (!Geocoder.isPresent()) emptyList()
+        else Geocoder(ctx, Locale.getDefault()).getFromLocationName(q, 5, 0.8, 99.5, 7.5, 119.5)
+            .orEmpty().map { Cand(P(it.latitude, it.longitude), it.postalCode) }
+    } catch (e: Exception) {
+        emptyList()
+    }
+
+    private fun viaNominatim(q: String): List<Cand> = try {
         val wait = 1100L - (System.currentTimeMillis() - lastNominatim)
         if (wait > 0) Thread.sleep(wait)
         lastNominatim = System.currentTimeMillis()
-        val url = "https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=my&q=" +
+        val url = "https://nominatim.openstreetmap.org/search?format=json&limit=5&addressdetails=1&countrycodes=my&q=" +
             URLEncoder.encode(q, "UTF-8")
         val arr = JSONArray(get(url))
-        if (arr.length() == 0) null else {
-            val o = arr.getJSONObject(0)
-            P(o.getString("lat").toDouble(), o.getString("lon").toDouble())
+        (0 until arr.length()).map {
+            val o = arr.getJSONObject(it)
+            Cand(P(o.getString("lat").toDouble(), o.getString("lon").toDouble()),
+                o.optJSONObject("address")?.optString("postcode")?.takeIf { x -> x.isNotEmpty() })
         }
     } catch (e: Exception) {
-        null
+        emptyList()
     }
 
     /** Road km for each leg between consecutive points, or null if the map service fails. */

@@ -5,6 +5,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
@@ -27,13 +29,18 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.text.InputType
 import android.view.Gravity
+import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -74,7 +81,10 @@ class OverlayService : Service() {
 
     private enum class St { IDLE, READING, ROUTING, NEED_MORE, RESULT, ERROR }
 
-    private class Leg(val label: String, var src: String, var km: Double, var unknown: Boolean)
+    private class Leg(
+        val label: String, var src: String, var km: Double, var unknown: Boolean,
+        val stop: Stop? = null, val from: String = "", var q: Int = 0, var how: String = ""
+    )
 
     private class Verdict(
         val word: String, val color: Int, val rpk: Double?,
@@ -90,6 +100,7 @@ class OverlayService : Service() {
     private var pill: TextView? = null
     private var card: View? = null
     private var raw: View? = null
+    private var editPanel: View? = null
     private var projection: MediaProjection? = null
     private var reader: ImageReader? = null
     private var display: VirtualDisplay? = null
@@ -378,38 +389,42 @@ class OverlayService : Service() {
         val stops = Session.stops.values.toList()
         pool.execute {
             val me = Geo.gps(this)
-            val pts = ArrayList<Geo.P?>()
-            for (s in stops) {
-                val key = s.name + "|" + s.address
-                var p = Session.geo[key]
-                if (p == null) {
-                    p = Geo.geocode(this, s)
-                    if (p != null) Session.geo[key] = p
+            val hits = ArrayList<Geo.Hit?>()
+            var ref: Geo.P? = me
+            for (st in stops) {
+                val key = st.name + "|" + st.address
+                var h = Session.geo[key]
+                if (h == null) {
+                    h = Geo.locate(this, st, ref)
+                    if (h != null) Session.geo[key] = h
                 }
-                pts.add(p)
+                hits.add(h)
+                if (h != null) ref = h.p
             }
             val chain = ArrayList<Geo.P?>()
             chain.add(me)
-            chain.addAll(pts)
-            val labels = ArrayList<String>()
-            for (i in stops.indices) {
-                labels.add(if (i == 0) "You to ${short(stops[0])}" else "${short(stops[i - 1])} to ${short(stops[i])}")
-            }
+            hits.forEach { chain.add(it?.p) }
             val out = ArrayList<Leg>()
             val all = chain.filterNotNull()
             val routed: List<Double>? = if (all.size == chain.size) Geo.routeLegs(all) else null
             for (i in stops.indices) {
                 val a = chain[i]
                 val b = chain[i + 1]
+                val from = if (i == 0) "You" else short(stops[i - 1])
+                val label = "$from to ${short(stops[i])}"
+                val hitA = if (i == 0) null else hits[i - 1]
+                val hitB = hits[i]
+                val q = maxOf(if (i == 0) 0 else (hitA?.level ?: 2), hitB?.level ?: 2)
+                val how = listOfNotNull(hitA, hitB).maxByOrNull { it.level }?.how.orEmpty()
                 if (a == null || b == null) {
                     val why = if (a == null && i == 0) "No GPS, set km" else "Address not found, set km"
-                    out.add(Leg(labels[i], why, 0.0, true))
+                    out.add(Leg(label, why, 0.0, true, stops[i], from, 2, "address not found"))
                 } else if (routed != null) {
-                    out.add(Leg(labels[i], if (i == 0) "GPS + map" else "Map estimate", routed[i], false))
+                    out.add(Leg(label, if (i == 0) "GPS + map" else "Map estimate", rnd(routed[i]), false, stops[i], from, q, how))
                 } else {
                     val seg = Geo.routeLegs(listOf(a, b))
-                    if (seg != null) out.add(Leg(labels[i], "Map estimate", seg[0], false))
-                    else out.add(Leg(labels[i], "Rough estimate (no map)", Geo.rough(a, b), false))
+                    if (seg != null) out.add(Leg(label, "Map estimate", rnd(seg[0]), false, stops[i], from, q, how))
+                    else out.add(Leg(label, "Rough estimate (no map)", rnd(Geo.rough(a, b)), false, stops[i], from, 2, "no map, straight line x 1.35"))
                 }
             }
             handler.post {
@@ -662,8 +677,17 @@ class OverlayService : Service() {
             box.addView(cap)
         }
 
-        // legs
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        // legs
+        if (legs.any { it.q >= 1 || it.unknown }) {
+            box.addView(tv("Some places were not found exactly, so those distances are estimates and may be off. Tap the number to type the real km.", 13.5f, DARK, true).apply {
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = shape(AMBER_T, 14)
+            }, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) })
+        }
+        box.addView(tv("Tap a place twice to copy its address. Tap a distance to type it.", 12.5f, SOFT).apply { setPadding(0, dp(12), 0, dp(2)) })
         for (leg in legs) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -671,25 +695,29 @@ class OverlayService : Service() {
                 setPadding(0, dp(8), 0, dp(8))
             }
             val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            txt.addView(tv(leg.label, 15f, DARK, true))
+            txt.addView(placeButton(leg))
             val mins = Math.round(leg.km / KM_PER_H * 60).toInt()
-            txt.addView(tv(if (leg.unknown) leg.src else "${leg.src} · $mins min", 13f, if (leg.unknown) RED else SOFT))
+            val detail = "from ${leg.from} · ${leg.src}" + (if (leg.unknown) "" else " · $mins min")
+            txt.addView(tv(detail, 13f, if (leg.unknown) RED else SOFT).apply { setPadding(dp(2), dp(4), 0, 0) })
+            if (leg.q >= 1 && !leg.unknown) {
+                txt.addView(tv("~ ${leg.how}. Check this one.", 12.5f, 0xFF9A5F00.toInt(), true).apply { setPadding(dp(2), dp(2), 0, 0) })
+            }
             row.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            row.addView(stepBtn("−", { adjust(leg, -0.5) }, { adjust(leg, -5.0) }))
-            row.addView(tv(String.format(Locale.US, "%.1f", leg.km), 18f, DARK, true).apply {
+            row.addView(stepBtn("−", { adjust(leg, -0.1) }, { adjust(leg, -1.0) }))
+            row.addView(tv((if (leg.q >= 1 && !leg.unknown) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 18f, DARK, true).apply {
                 gravity = Gravity.CENTER
-                minWidth = dp(50)
+                minWidth = dp(54)
+                minHeight = dp(46)
+                paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
                 typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                setOnClickListener { openEdit(leg) }
             })
-            row.addView(stepBtn("+", { adjust(leg, 0.5) }, { adjust(leg, 5.0) }))
+            row.addView(stepBtn("+", { adjust(leg, 0.1) }, { adjust(leg, 1.0) }))
             list.addView(row)
             list.addView(View(this).apply { setBackgroundColor(0xFFE4E8EF.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)))
         }
-        val scroll = CappedScroll(this, (screen.height() * 0.3f).toInt())
-        scroll.addView(list)
-        box.addView(scroll, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(6) })
+        box.addView(list)
+        box.addView(tv("Distances are road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ.", 12f, SOFT).apply { setPadding(0, dp(8), 0, dp(2)) })
 
         val bonus = Session.bonus
         if (bonus != null) {
@@ -743,15 +771,146 @@ class OverlayService : Service() {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
             y = dp(20)
         }
-        wm.addView(box, lp)
-        card = box
+        val outer = CappedScroll(this, (screen.height() * 0.86f).toInt())
+        outer.addView(box)
+        wm.addView(outer, lp)
+        card = outer
     }
 
+    private fun rnd(x: Double): Double = Math.round(x * 10.0) / 10.0
+
     private fun adjust(leg: Leg, d: Double) {
-        leg.km = max(0.0, leg.km + d)
+        leg.km = rnd(max(0.0, leg.km + d))
         leg.unknown = false
-        if (!leg.src.startsWith("Edited")) leg.src = "Edited by you"
+        leg.q = 0
+        leg.src = "Edited by you"
         refresh()
+    }
+
+    private fun shortToast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    private fun placeButton(leg: Leg): TextView {
+        val name = (leg.stop?.name ?: "Place").substringBefore(" - ").take(40)
+        val t = tv("📍 $name", 15f, DARK, true).apply {
+            setPadding(dp(10), dp(8), dp(10), dp(8))
+            background = shape(0xFFEEF2FA.toInt(), 12)
+        }
+        val addr = leg.stop?.address.orEmpty()
+        val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (addr.isBlank()) {
+                    shortToast("No address to copy")
+                } else {
+                    getSystemService(ClipboardManager::class.java)
+                        .setPrimaryClip(ClipData.newPlainText("address", addr))
+                    t.background = shape(GREEN_T, 12)
+                    handler.postDelayed({ t.background = shape(0xFFEEF2FA.toInt(), 12) }, 600)
+                    shortToast("Address copied")
+                }
+                return true
+            }
+        })
+        t.setOnTouchListener { _, e -> gd.onTouchEvent(e) }
+        return t
+    }
+
+    /** Small window at the top with a keyboard, so you can type the real km. */
+    private fun openEdit(leg: Leg) {
+        closeEdit()
+        val screen = wm.currentWindowMetrics.bounds
+        val et = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            setText(String.format(Locale.US, "%.1f", leg.km))
+            selectAllOnFocus = true
+            textSize = 30f
+            setTextColor(DARK)
+            typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            gravity = Gravity.CENTER
+            imeOptions = EditorInfo.IME_ACTION_DONE
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(14).toFloat()
+                setColor(0xFFF1F4F9.toInt())
+                setStroke(dp(2), BLUE)
+            }
+        }
+        fun save() {
+            val v = et.text.toString().replace(',', '.').toDoubleOrNull()
+            if (v == null || v < 0 || v > 999) {
+                shortToast("Type a number like 9.1")
+                return
+            }
+            leg.km = rnd(v)
+            leg.unknown = false
+            leg.q = 0
+            leg.src = "Edited by you"
+            closeEdit()
+            refresh()
+        }
+        et.setOnEditorActionListener { _, id, _ ->
+            if (id == EditorInfo.IME_ACTION_DONE) { save(); true } else false
+        }
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(24).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), 0xFFD6DBE6.toInt())
+            }
+        }
+        box.addView(tv("Distance in km", 13f, SOFT, true))
+        box.addView(tv("${leg.from} to ${short(leg.stop ?: Stop(0, false, "", ""))}", 15f, DARK, true))
+        box.addView(et, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(10) })
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        row.addView(Button(this).apply {
+            text = "Cancel"
+            isAllCaps = false
+            textSize = 16f
+            setTextColor(DARK)
+            stateListAnimator = null
+            background = shape(BTN, 16)
+            setOnClickListener { closeEdit() }
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
+        row.addView(Button(this).apply {
+            text = "Save"
+            isAllCaps = false
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            stateListAnimator = null
+            background = shape(DARK, 16)
+            setOnClickListener { save() }
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })
+        box.addView(row, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(12) })
+        val lp = WindowManager.LayoutParams(
+            screen.width() - dp(40),
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            y = dp(90)
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
+                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+        }
+        wm.addView(box, lp)
+        editPanel = box
+        et.post {
+            et.requestFocus()
+            getSystemService(InputMethodManager::class.java).showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    private fun closeEdit() {
+        editPanel?.let { try { wm.removeView(it) } catch (_: Exception) {} }
+        editPanel = null
     }
 
     private fun refresh() {
@@ -760,6 +919,7 @@ class OverlayService : Service() {
     }
 
     private fun closeCard() {
+        closeEdit()
         card?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         card = null
     }

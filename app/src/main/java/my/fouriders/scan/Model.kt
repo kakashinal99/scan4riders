@@ -13,7 +13,7 @@ object Session {
     var bonus: Double? = null
     var total: Int? = null
     val stops = TreeMap<Int, Stop>()
-    val geo = HashMap<String, Geo.P>()
+    val geo = HashMap<String, Geo.Hit>()
     private var at = 0L
 
     fun reset() {
