@@ -822,7 +822,7 @@ class OverlayService : Service() {
         val et = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(String.format(Locale.US, "%.1f", leg.km))
-            selectAllOnFocus = true
+            setSelectAllOnFocus(true)
             textSize = 30f
             setTextColor(DARK)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
