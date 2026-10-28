@@ -54,13 +54,22 @@ class OverlayService : Service() {
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "scan"
         @Volatile var running = false
-        private const val BLUE = 0xFF25C8FF.toInt()
-        private const val GREY = 0xFF71809B.toInt()
-        private const val AMBER = 0xFFFFB547.toInt()
-        private const val GREEN = 0xFFB8FF2C.toInt()
-        private const val ORANGE = 0xFFFFB547.toInt()
-        private const val RED = 0xFFFF5268.toInt()
-        private const val INK = 0xFFEAF1FF.toInt()
+        // Daylight palette: strong colours that stay readable in noon sun.
+        private const val BLUE = 0xFF0B57D0.toInt()
+        private const val GREY = 0xFF5A6678.toInt()
+        private const val AMBER = 0xFFF29C00.toInt()
+        private const val GREEN = 0xFF0F8A43.toInt()
+        private const val ORANGE = 0xFFF29C00.toInt()
+        private const val RED = 0xFFD9263A.toInt()
+        private const val INK = 0xFFEAF1FF.toInt()   // raw-text debug panel (dark)
+        private const val DARK = 0xFF0D1220.toInt()  // text on light surfaces
+        private const val SOFT = 0xFF3D4756.toInt()  // secondary text, still strong
+        private const val BTN = 0xFFE8ECF3.toInt()
+        private const val GREEN_T = 0xFFDCF5E5.toInt()
+        private const val AMBER_T = 0xFFFFEFC7.toInt()
+        private const val RED_T = 0xFFFDE0E4.toInt()
+        private const val KM_PER_H = 24.0
+        private const val FUEL_PER_KM = 0.14
     }
 
     private enum class St { IDLE, READING, ROUTING, NEED_MORE, RESULT, ERROR }
@@ -189,9 +198,9 @@ class OverlayService : Service() {
 
     private fun showPill() {
         val tv = TextView(this).apply {
-            textSize = 14f
+            textSize = 15f
             gravity = Gravity.CENTER
-            setTextColor(Color.WHITE)
+            setTextColor(DARK)
             setTypeface(typeface, Typeface.BOLD)
             setPadding(dp(16), dp(11), dp(16), dp(11))
             elevation = dp(6).toFloat()
@@ -244,10 +253,15 @@ class OverlayService : Service() {
 
     private fun setState(s: St, text: String, color: Int) {
         state = s
-        pill?.text = text
+        val sb = android.text.SpannableStringBuilder("● ")
+        sb.setSpan(android.text.style.ForegroundColorSpan(color), 0, 1, 0)
+        sb.setSpan(android.text.style.RelativeSizeSpan(1.35f), 0, 1, 0)
+        sb.append(text)
+        pill?.text = sb
         pill?.background = GradientDrawable().apply {
             cornerRadius = dp(26).toFloat()
-            setColor(color)
+            setColor(Color.WHITE)
+            setStroke(dp(3), color)
         }
     }
 
@@ -400,6 +414,7 @@ class OverlayService : Service() {
             }
             handler.post {
                 legs = out
+                record()
                 showResult()
             }
         }
@@ -436,22 +451,98 @@ class OverlayService : Service() {
 
     // ---------- details card ----------
 
-    private class Meter(ctx: Context, val rpk: Double, val rej: Double, val ok: Double) : View(ctx) {
+    /** Small traffic light: only the lamp that matches the verdict is lit. */
+    private class Lamp(ctx: Context, val word: String) : View(ctx) {
         private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val d = resources.displayMetrics.density
+        override fun onMeasure(w: Int, h: Int) = setMeasuredDimension((42 * d).toInt(), (112 * d).toInt())
         override fun onDraw(c: Canvas) {
-            val w = width.toFloat()
-            val h = height.toFloat()
-            val top = h / 2 - 4f * resources.displayMetrics.density
-            val bot = h / 2 + 4f * resources.displayMetrics.density
-            val a = (rej / (ok * 2)).toFloat().coerceIn(0f, 1f) * w
-            val b = 0.5f * w
-            p.color = RED; c.drawRect(0f, top, a, bot, p)
-            p.color = ORANGE; c.drawRect(a, top, b, bot, p)
-            p.color = GREEN; c.drawRect(b, top, w, bot, p)
-            val x = (rpk / (ok * 2)).toFloat().coerceIn(0f, 1f) * w
-            p.color = INK
-            c.drawRect(x - 2f * resources.displayMetrics.density, 0f, x + 2f * resources.displayMetrics.density, h, p)
+            p.color = DARK
+            c.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 21 * d, 21 * d, p)
+            val cols = intArrayOf(RED, AMBER, GREEN)
+            val lit = when (word) { "REJECT" -> 0; "CONSIDER" -> 1; "ACCEPT" -> 2; else -> -1 }
+            for (i in 0..2) {
+                val cx = width / 2f
+                val cy = 6 * d + 15 * d + i * 35 * d
+                if (i == lit) {
+                    p.color = cols[i]; p.alpha = 70
+                    c.drawCircle(cx, cy, 19 * d, p)
+                    p.alpha = 255
+                    c.drawCircle(cx, cy, 15 * d, p)
+                } else {
+                    p.color = cols[i]; p.alpha = 56
+                    c.drawCircle(cx, cy, 15 * d, p)
+                    p.alpha = 255
+                }
+            }
         }
+    }
+
+    /** Your last scans as bars, with this one highlighted. */
+    private class Bars(ctx: Context, val past: List<Double>, val now: Double, val nowColor: Int) : View(ctx) {
+        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+        private val d = resources.displayMetrics.density
+        override fun onMeasure(w: Int, h: Int) =
+            setMeasuredDimension(MeasureSpec.getSize(w), (86 * d).toInt())
+        override fun onDraw(c: Canvas) {
+            val all = past + now
+            val mx = all.max().coerceAtLeast(0.1)
+            val n = all.size
+            val gap = 8 * d
+            val bw = (width - gap * (n - 1)) / n
+            val top = 20 * d
+            val base = height.toFloat()
+            p.textSize = 11 * d
+            p.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            p.textAlign = Paint.Align.CENTER
+            for (i in 0 until n) {
+                val h = ((all[i] / mx).toFloat() * (base - top)).coerceAtLeast(6 * d)
+                val x = i * (bw + gap)
+                p.color = if (i == n - 1) nowColor else 0xFFCDD5E2.toInt()
+                c.drawRoundRect(x, base - h, x + bw, base, 6 * d, 6 * d, p)
+                p.color = DARK
+                c.drawText(String.format(Locale.US, "%.2f", all[i]), x + bw / 2, base - h - 4 * d, p)
+            }
+        }
+    }
+
+    private class CappedScroll(ctx: Context, val maxH: Int) : ScrollView(ctx) {
+        override fun onMeasure(w: Int, h: Int) =
+            super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
+    }
+
+    // ---------- scan history (so the card can compare this order with your last ones) ----------
+
+    private fun pastScans(): List<Double> =
+        prefs.getString("hist", "").orEmpty().split(",").mapNotNull { it.toDoubleOrNull() }
+
+    private fun record() {
+        val v = verdict()
+        val rpk = v.rpk ?: return
+        val sig = "${Session.fare}|" + Session.stops.values.joinToString(";") { it.name }
+        val oldSig = prefs.getString("curSig", "").orEmpty()
+        if (sig != oldSig) {
+            val oldRpk = prefs.getFloat("curRpk", -1f)
+            val h = pastScans().toMutableList()
+            if (oldSig.isNotEmpty() && oldRpk > 0f) h.add(oldRpk.toDouble())
+            val keep = h.takeLast(5).joinToString(",") { String.format(Locale.US, "%.3f", it) }
+            prefs.edit().putString("hist", keep).putString("curSig", sig).apply()
+        }
+        prefs.edit().putFloat("curRpk", rpk.toFloat()).apply()
+    }
+
+    private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
+        val rpk = v.rpk ?: return null
+        if (v.fare < minFare) return "Below the RM${f2(minFare)} minimum fare."
+        if (v.word == "ACCEPT") {
+            val spare = v.fare / ok - v.km
+            return "Safe. It stays ACCEPT up to ${String.format(Locale.US, "%.1f", max(0.0, spare))} km more."
+        }
+        val tgt = if (v.word == "REJECT") rej else ok
+        val to = if (v.word == "REJECT") "CONSIDER" else "ACCEPT"
+        val more = tgt * v.km - v.fare
+        val less = v.km - v.fare / tgt
+        return "+RM ${f2(max(0.0, more))} or ${String.format(Locale.US, "%.1f", max(0.0, less))} km shorter turns it to $to."
     }
 
     private fun tv(text: String, size: Float, color: Int, bold: Boolean = false): TextView = TextView(this).apply {
@@ -461,13 +552,22 @@ class OverlayService : Service() {
         if (bold) setTypeface(typeface, Typeface.BOLD)
     }
 
+    private fun shape(color: Int, radius: Int = 16) = GradientDrawable().apply {
+        cornerRadius = dp(radius).toFloat()
+        setColor(color)
+    }
+
     private fun stepBtn(label: String, onTap: () -> Unit, onLong: () -> Unit): Button = Button(this).apply {
         text = label
         isAllCaps = false
+        textSize = 22f
+        setTextColor(DARK)
+        stateListAnimator = null
         minWidth = 0
         minimumWidth = 0
         setPadding(0, 0, 0, 0)
-        layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        background = shape(BTN, 14)
+        layoutParams = LinearLayout.LayoutParams(dp(46), dp(46)).apply { marginStart = dp(4) }
         setOnClickListener { onTap() }
         setOnLongClickListener { onLong(); true }
     }
@@ -476,63 +576,130 @@ class OverlayService : Service() {
         closeCard()
         val v = verdict()
         val c = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        val minFare = c.getFloat("min", 4f).toDouble()
         val rej = c.getFloat("rej", 0.9f).toDouble()
         val ok = c.getFloat("ok", 1.2f).toDouble()
         val screen = wm.currentWindowMetrics.bounds
 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
+            setPadding(dp(16), dp(16), dp(16), dp(14))
             background = GradientDrawable().apply {
-                cornerRadius = dp(20).toFloat()
-                setColor(0xFF0D1525.toInt())
-                setStroke(dp(1), 0xFF23334D.toInt())
+                cornerRadius = dp(28).toFloat()
+                setColor(Color.WHITE)
+                setStroke(dp(1), 0xFFD6DBE6.toInt())
             }
         }
+
+        // top: small signal light + verdict word + rate
         val head = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
         }
-        head.addView(tv(v.word, 28f, v.color, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        head.addView(tv(if (v.rpk != null) "${f2(v.rpk)} RM/km" else "--", 18f, INK, true))
-        box.addView(head)
-        val sub = "RM ${f2(v.fare)} ÷ ${String.format(Locale.US, "%.1f", v.km)} km. ${v.note}" +
-            (if (v.near) " Close to the limit, check the km." else "") +
-            (if (uncertain) " Stop count was not read, check every stop is below." else "")
-        box.addView(tv(sub, 13f, GREY).apply { setPadding(0, dp(6), 0, dp(8)) })
+        head.addView(Lamp(this, v.word))
+        val hv = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), 0, 0, 0)
+        }
+        hv.addView(tv(v.word, 22f, DARK, true).apply { letterSpacing = 0.04f })
         if (v.rpk != null) {
-            box.addView(Meter(this, v.rpk, rej, ok), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(16)))
+            val rate = android.text.SpannableStringBuilder(f2(v.rpk))
+            val n = rate.length
+            rate.append(" RM/km")
+            rate.setSpan(android.text.style.RelativeSizeSpan(0.45f), n, rate.length, 0)
+            hv.addView(TextView(this).apply {
+                text = rate
+                textSize = 32f
+                setTextColor(DARK)
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+            })
+            val mins = Math.round(v.km / KM_PER_H * 60).toInt()
+            hv.addView(tv("RM ${f2(v.fare)} ÷ ${String.format(Locale.US, "%.1f", v.km)} km · $mins min", 14f, SOFT))
+        } else {
+            hv.addView(tv(v.note, 14f, SOFT))
+        }
+        head.addView(hv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(head)
+
+        // what would flip the verdict
+        val flip = flipText(v, rej, ok, minFare)
+        if (flip != null) {
+            val tint = when (v.word) { "ACCEPT" -> GREEN_T; "REJECT" -> RED_T; else -> AMBER_T }
+            val fr = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = shape(tint, 16)
+            }
+            fr.addView(TextView(this).apply {
+                text = if (v.word == "ACCEPT") "✓" else "!"
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(if (v.word == "CONSIDER") DARK else Color.WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(v.color) }
+                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+            })
+            fr.addView(tv(flip, 15f, DARK, true).apply { setPadding(dp(10), 0, 0, 0) })
+            box.addView(fr, LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(12) })
+        }
+        val extra = (if (v.near) "Close to the limit, check the km. " else "") +
+            (if (uncertain) "Stop count was not read, check every stop is below." else "")
+        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 13f, SOFT).apply { setPadding(0, dp(6), 0, 0) })
+
+        // last scans
+        val past = pastScans().takeLast(5)
+        if (v.rpk != null && past.isNotEmpty()) {
+            box.addView(Bars(this, past, v.rpk, v.color), LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(14) })
+            val beat = past.count { v.rpk > it }
+            val cap = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            cap.addView(tv("Your last ${past.size} scans", 12f, SOFT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            cap.addView(tv("Beats $beat of ${past.size}", 12f, SOFT, true))
+            box.addView(cap)
         }
 
+        // legs
         val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         for (leg in legs) {
             val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(6), 0, dp(6))
+                setPadding(0, dp(8), 0, dp(8))
             }
             val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            txt.addView(tv(leg.label, 13f, INK, true))
-            txt.addView(tv(leg.src, 11f, if (leg.unknown) RED else GREY))
+            txt.addView(tv(leg.label, 15f, DARK, true))
+            val mins = Math.round(leg.km / KM_PER_H * 60).toInt()
+            txt.addView(tv(if (leg.unknown) leg.src else "${leg.src} · $mins min", 13f, if (leg.unknown) RED else SOFT))
             row.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(stepBtn("−", { adjust(leg, -0.5) }, { adjust(leg, -5.0) }))
-            row.addView(tv(String.format(Locale.US, "%.1f", leg.km), 14f, INK, true).apply {
+            row.addView(tv(String.format(Locale.US, "%.1f", leg.km), 18f, DARK, true).apply {
                 gravity = Gravity.CENTER
-                minWidth = dp(44)
+                minWidth = dp(50)
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             })
             row.addView(stepBtn("+", { adjust(leg, 0.5) }, { adjust(leg, 5.0) }))
             list.addView(row)
+            list.addView(View(this).apply { setBackgroundColor(0xFFE4E8EF.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)))
         }
-        val scroll = ScrollView(this)
+        val scroll = CappedScroll(this, (screen.height() * 0.3f).toInt())
         scroll.addView(list)
         box.addView(scroll, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(8) })
+        ).apply { topMargin = dp(6) })
 
         val bonus = Session.bonus
         if (bonus != null) {
             box.addView(CheckBox(this).apply {
                 text = "Count the + RM ${f2(bonus)}"
+                textSize = 16f
+                setTextColor(DARK)
+                setTypeface(typeface, Typeface.BOLD)
+                buttonTintList = android.content.res.ColorStateList.valueOf(DARK)
+                minHeight = dp(48)
                 isChecked = useBonus
                 setOnCheckedChangeListener { _, on ->
                     useBonus = on
@@ -545,14 +712,26 @@ class OverlayService : Service() {
         row.addView(Button(this).apply {
             text = "Scan again"
             isAllCaps = false
+            textSize = 16f
+            setTextColor(DARK)
+            setTypeface(typeface, Typeface.BOLD)
+            stateListAnimator = null
+            background = shape(BTN, 16)
             setOnClickListener { rescan() }
-        }, LinearLayout.LayoutParams(0, dp(46), 1f))
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
         row.addView(Button(this).apply {
             text = "Minimise"
             isAllCaps = false
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setTypeface(typeface, Typeface.BOLD)
+            stateListAnimator = null
+            background = shape(DARK, 16)
             setOnClickListener { closeCard() }
-        }, LinearLayout.LayoutParams(0, dp(46), 1f))
-        box.addView(row)
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })
+        box.addView(row, LinearLayout.LayoutParams(
+            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
+        ).apply { topMargin = dp(8) })
 
         val lp = WindowManager.LayoutParams(
             screen.width() - dp(24),
