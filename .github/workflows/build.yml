@@ -14,7 +14,11 @@ jobs:
       - name: Build debug APK
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          set +e
+          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
+          code=${PIPESTATUS[0]}
+          grep -E "^e: |error:" build.log | head -30 | while IFS= read -r l; do echo "::error::${l}"; done
+          exit $code
       - uses: actions/upload-artifact@v4
         with:
           name: 4riders-scan-apk
