@@ -4,8 +4,11 @@ import com.google.mlkit.vision.text.Text
 
 /** Turns the text read from a Grab "Route details" screen into fare and stops. */
 object Parser {
-    private val head = Regex("""^\s*(\d{1,2})\s*[.,]\s*(Collect from|Deliver to|Collect|Deliver)""", RegexOption.IGNORE_CASE)
-    private val earn = Regex("""earn\s*RM\s*([0-9]+(?:[.,][0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
+    private val head = Regex("""^\s*(\d{1,2})\s*[.,]\s*(Collect from|Deliver to|Pick[\s-]?up item|Drop[\s-]?off item|Pick[\s-]?up|Drop[\s-]?off|Collect|Deliver)""", RegexOption.IGNORE_CASE)
+    private val earn = Regex("""earn(?:ings)?\s*:?\s*RM\s*([0-9]+(?:[.,][0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
+    private val sender = Regex("""^sender'?s name\s*:?\s*(.*)$""", RegexOption.IGNORE_CASE)
+    private val parties = Regex("""^(sender|recipient)'?s name\s*:?|^(drop[\s-]?off|pick[\s-]?up)\s+details|^(hide|show)\s+details|^item details|^call |^chat with |^cancel booking""", RegexOption.IGNORE_CASE)
+    private val unitLike = Regex("""^(lot|level|lvl|unit|blok|block|floor|no\.?)\b|^\d""", RegexOption.IGNORE_CASE)
     private val plus = Regex("""^\s*\+\s*RM\s*([0-9]+(?:[.,][0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
     private val left = Regex("""(\d+)\s*/\s*(\d+)\s*stops?""", RegexOption.IGNORE_CASE)
     private val labels = Regex(
@@ -14,7 +17,8 @@ object Parser {
     )
     private val time = Regex("""^\d{1,2}:\d{2}\s*(AM|PM)$""", RegexOption.IGNORE_CASE)
     private val rating = Regex("""^.{1,30}[\s.·•]+[0-5][.,]\d$""")
-    private val ids = Regex("""^[A-Z]{1,3}-?[0-9A-Z]{2,}([,\s]+[A-Z]{1,3}-?[0-9A-Z]+)*$""")
+    // An id must contain a digit, or an all-capitals address line would be mistaken for one.
+    private val ids = Regex("""^(?=.*\d)(?:[A-Z]{1,3}-?[0-9A-Z]{2,}(?:[,\s]+[A-Z]{1,3}-?[0-9A-Z]+)*|[A-Z]{1,3}(?:-[0-9A-Z]+)+)$""")
     private val noise = Regex("""detected this screenshot""", RegexOption.IGNORE_CASE)
 
     private class Ln(val top: Int, val left: Int, val s: String)
@@ -32,7 +36,7 @@ object Parser {
     }
 
     private fun isEnd(s: String): Boolean =
-        labels.matches(s) || time.matches(s) || rating.matches(s) || ids.matches(s) ||
+        labels.matches(s) || parties.containsMatchIn(s) || time.matches(s) || rating.matches(s) || ids.matches(s) ||
             earn.containsMatchIn(s) || plus.containsMatchIn(s) || left.containsMatchIn(s)
 
     private fun num(s: String): Double = s.replace(',', '.').toDouble()
@@ -45,15 +49,26 @@ object Parser {
         val stops = ArrayList<Stop>()
         var curN = -1
         var curCollect = false
+        var curParcel = false
+        var wantName = -1 // index in stops waiting for the sender's shop name
         val buf = ArrayList<String>()
 
         fun flush() {
-            if (curN >= 0 && buf.isNotEmpty()) stops.add(build(curN, curCollect, ArrayList(buf)))
+            if (curN >= 0 && buf.isNotEmpty()) stops.add(build(curN, curCollect, ArrayList(buf), curParcel))
             curN = -1
             buf.clear()
         }
 
         for (s in ls) {
+            if (wantName >= 0) {
+                val stillLabel = isEnd(s) || head.containsMatchIn(s)
+                if (!stillLabel && wantName < stops.size) {
+                    val old = stops[wantName]
+                    stops[wantName] = old.copy(name = clean(s))
+                }
+                wantName = -1
+                if (!stillLabel) continue
+            }
             earn.find(s)?.let { fare = num(it.groupValues[1]) }
             plus.find(s)?.let { if (bonus == null) bonus = num(it.groupValues[1]) }
             left.find(s)?.let { total = it.groupValues[2].toInt() }
@@ -61,25 +76,50 @@ object Parser {
             if (h != null) {
                 flush()
                 curN = h.groupValues[1].toInt()
-                curCollect = h.groupValues[2].startsWith("Collect", ignoreCase = true)
+                val w = h.groupValues[2]
+                curCollect = w.startsWith("Collect", ignoreCase = true) || w.startsWith("Pick", ignoreCase = true)
+                curParcel = w.contains("item", ignoreCase = true) || w.startsWith("Pick", true) || w.startsWith("Drop", true)
                 continue
             }
             if (curN >= 0) {
-                if (isEnd(s)) flush() else buf.add(s)
+                if (isEnd(s)) {
+                    val had = buf.isNotEmpty()
+                    val coll = curCollect
+                    flush()
+                    val m = sender.find(s)
+                    if (m != null && had && coll) {
+                        val inline = m.groupValues[1].trim()
+                        if (inline.isNotEmpty()) stops[stops.size - 1] = stops.last().copy(name = clean(inline))
+                        else wantName = stops.size - 1
+                    }
+                } else buf.add(s)
             }
         }
         flush()
         return Parsed(fare, bonus, total, stops)
     }
 
+    private fun dedupe(s: String): String {
+        val seen = HashSet<String>()
+        return s.split(',').map { it.trim() }.filter { it.isNotEmpty() && seen.add(it.lowercase()) }.joinToString(", ")
+    }
+
     private fun clean(s: String): String =
-        s.replace(Regex("""\[[^\]]*\]"""), " ")
+        dedupe(s.replace(Regex("""\.\s*,"""), ","))
+            .replace(Regex("""\[[^\]]*\]"""), " ")
             .replace(Regex("""\(\s*Ground Floor\s*\)""", RegexOption.IGNORE_CASE), " ")
             .replace("lpoh", "Ipoh")
             .replace(Regex("""\s+"""), " ")
             .trim()
 
-    private fun build(n: Int, collect: Boolean, lines: List<String>): Stop {
+    private fun build(n: Int, collect: Boolean, lines: List<String>, parcel: Boolean): Stop {
+        if (parcel) {
+            // Parcel orders show only the address; the shop name comes later for pickups.
+            val full = clean(lines.joinToString(" "))
+            val parts = full.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+            val nm = parts.firstOrNull { !unitLike.containsMatchIn(it) } ?: parts.firstOrNull() ?: full
+            return Stop(n, collect, nm, full)
+        }
         val idx = lines.indexOfFirst { it.contains(',') }
         val name: String
         val addr: String

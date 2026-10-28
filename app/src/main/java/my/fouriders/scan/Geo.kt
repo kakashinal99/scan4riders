@@ -65,6 +65,8 @@ object Geo {
 
     private val unitPart = Regex("""^(no\.?|lot|unit|blok|block|level|lvl)?\s*\d+[a-z]?(\s*[&/\-]\s*\d+[a-z]?)*$""", RegexOption.IGNORE_CASE)
 
+    private val levelPart = Regex("""^(lot|level|lvl|unit|blok|block|floor|ground floor)\b""", RegexOption.IGNORE_CASE)
+
     /** Straight-line km, used to sanity-check a found place against where you are. */
     fun straight(a: P, b: P): Double {
         val r = 6371.0
@@ -81,7 +83,7 @@ object Geo {
     fun locate(ctx: Context, s: Stop, ref: P?): Hit? {
         val post = Regex("""\b(\d{5})\b""").find(s.address)?.groupValues?.get(1)
         val parts = s.address.split(',').map { it.trim() }.filter { it.isNotEmpty() }
-        val noUnit = parts.filterNot { unitPart.matches(it) }
+        val noUnit = parts.filterNot { unitPart.matches(it) || levelPart.containsMatchIn(it) }
         val addr2 = noUnit.joinToString(", ")
         val area = noUnit.filterNot { it == post }.takeLast(3).joinToString(", ")
         val tail2 = noUnit.filterNot { it == post }.takeLast(2).joinToString(", ")
