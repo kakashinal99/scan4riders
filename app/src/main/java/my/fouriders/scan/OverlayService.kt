@@ -290,6 +290,22 @@ class OverlayService : Service() {
         }
     }
 
+    /** After a Skip the order is forgotten, so the chip goes back to Scan and the next order starts clean. */
+    private fun clearScan(msg: String) {
+        handler.removeCallbacks(settle)
+        closeCard()
+        Session.reset()
+        legs = emptyList()
+        uncertain = false
+        tookWhat = null
+        showMore = false
+        armed = false
+        moved = 0
+        autoCount = 0
+        setState(St.IDLE, "Scan", BLUE)
+        shortToast(msg)
+    }
+
     private fun rescan() {
         closeCard()
         Session.reset()
@@ -819,7 +835,7 @@ class OverlayService : Service() {
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), DARK) }
-                setOnClickListener { tookWhat = "Skipped"; saveRec("S"); refresh() }
+                setOnClickListener { saveRec("S"); clearScan("Skipped, scanner cleared") }
             }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(5) })
             fr.addView(Button(this).apply {
                 text = "Take"

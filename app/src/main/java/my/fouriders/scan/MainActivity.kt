@@ -250,6 +250,17 @@ class MainActivity : Activity() {
         val rows = when (filt) { 1 -> all.filter { it.decision == "T" }; 2 -> all.filter { it.decision != "T" }; else -> all }.take(100)
         header(p, "Orders", "Latest ${rows.size} · RM " + f2(rows.filter { it.decision == "T" }.sumOf { it.fare }) + " taken")
         p.addView(seg(listOf("All", "Taken", "Skipped"), filt) { filt = it; render() }, mt(12))
+        p.addView(Button(this).apply {
+            text = "+ Add an order"
+            isAllCaps = false
+            textSize = 15f
+            setTextColor(BLUE)
+            setTypeface(typeface, Typeface.BOLD)
+            stateListAnimator = null
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), BLUE) }
+            setOnClickListener { editOrder(null) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) })
+        p.addView(tv("Tap an order to edit or delete it.", 12.5f, MUT), mt(6))
         if (rows.isEmpty()) p.addView(tv("Nothing here yet.", 14f, MUT), mt(16))
         else {
             p.addView(thead("Time · Area", "RM/km", "Fare"), mt(10))
@@ -366,6 +377,99 @@ class MainActivity : Activity() {
             render()
         })
         p.addView(tv("Take and Skip are saved in this app only. Nothing is pressed in Grab. Long press the chip to see the raw text.", 12.5f, MUT), mt(6))
+    }
+
+    private fun wordFor(fare: Double, rpk: Double): String {
+        val c = cfg()
+        return when {
+            fare < c.getFloat("min", 4f) -> "REJECT"
+            rpk < c.getFloat("rej", 0.9f) -> "REJECT"
+            rpk < c.getFloat("ok", 1.2f) -> "CONSIDER"
+            else -> "ACCEPT"
+        }
+    }
+
+    private fun input(v: String, decimal: Boolean) = android.widget.EditText(this).apply {
+        setText(v)
+        textSize = 17f
+        setTextColor(INK)
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        if (decimal) inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+        setSelectAllOnFocus(true)
+        setPadding(dp(12), 0, dp(12), 0)
+        background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(Color.parseColor("#F1F4F9")); setStroke(dp(1), LINE) }
+    }
+
+    /** Edit, delete or add one order in the history. o == null adds a new one. */
+    private fun editOrder(o: Rec?) {
+        var dec = o?.decision ?: "T"
+        var shift = 0
+        val baseId = o?.id ?: System.currentTimeMillis()
+        val box = col().apply { setPadding(dp(20), dp(18), dp(20), dp(8)) }
+        box.addView(tv(if (o == null) "Add an order" else "Edit order", 20f, INK, true))
+        box.addView(lab("Area"), mt(14))
+        val fArea = input(o?.area ?: "", false)
+        box.addView(fArea, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(4) })
+        val two = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val c1 = col(); c1.addView(lab("Fare (RM)")); val fFare = input(if (o != null) f2(o.fare) else "", true); c1.addView(fFare, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(4) })
+        val c2 = col(); c2.addView(lab("Distance (km)")); val fKm = input(if (o != null) f1(o.km) else "", true); c2.addView(fKm, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(4) })
+        two.addView(c1, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
+        two.addView(c2, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(6) })
+        box.addView(two, mt(12))
+        box.addView(lab("Date"), mt(12))
+        val dateRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val dateTv = mono("", 15f).apply { gravity = Gravity.CENTER }
+        fun showDate() { dateTv.text = SimpleDateFormat("EEE d MMM, h:mm a", Locale.US).format(Date(baseId + shift * 86400000L)) }
+        fun stepB(s: String, d: Int) = Button(this).apply {
+            text = s; textSize = 20f; isAllCaps = false; setTextColor(BLUE); stateListAnimator = null
+            minWidth = 0; minimumWidth = 0; setPadding(0, 0, 0, 0)
+            background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(SOFTBG) }
+            setOnClickListener { shift += d; showDate() }
+        }
+        dateRow.addView(stepB("−", -1), LinearLayout.LayoutParams(dp(44), dp(44)))
+        dateRow.addView(dateTv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        dateRow.addView(stepB("+", 1), LinearLayout.LayoutParams(dp(44), dp(44)))
+        box.addView(dateRow, mt(4))
+        showDate()
+        box.addView(lab("What you did"), mt(12))
+        val segHost = LinearLayout(this)
+        fun drawSeg() {
+            segHost.removeAllViews()
+            val idx = when (dec) { "T" -> 0; "S" -> 1; else -> 2 }
+            segHost.addView(seg(listOf("Taken", "Skipped", "Not logged"), idx) { dec = listOf("T", "S", "")[it]; drawSeg() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        }
+        drawSeg()
+        box.addView(segHost, mt(4))
+        val dlg = android.app.AlertDialog.Builder(this).setView(ScrollView(this).apply { addView(box) }).create()
+        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun btn(t: String, bg: Int, fg: Int, stroke: Int, f: () -> Unit) = Button(this).apply {
+            text = t; isAllCaps = false; textSize = 16f; setTextColor(fg); setTypeface(typeface, Typeface.BOLD); stateListAnimator = null
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(bg); if (stroke != 0) setStroke(dp(2), stroke) }
+            setOnClickListener { f() }
+        }
+        row.addView(btn("Cancel", Color.WHITE, INK, INK) { dlg.dismiss() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
+        row.addView(btn("Save", INK, Color.WHITE, 0) {
+            val fare = fFare.text.toString().replace(',', '.').toDoubleOrNull()
+            val km = fKm.text.toString().replace(',', '.').toDoubleOrNull()
+            if (fare == null || km == null || km <= 0 || fare < 0) { toast("Type the fare and distance as numbers"); return@btn }
+            var id = baseId + shift * 86400000L
+            if (id != o?.id) while (Store.get(this, id) != null) id++
+            val rpk = fare / km
+            val area = fArea.text.toString().trim().ifEmpty { "Unknown" }
+            if (o != null && id != o.id) Store.delete(this, o.id)
+            Store.upsert(this, Rec(id, wordFor(fare, rpk), rpk, fare, km, area, dec))
+            dlg.dismiss()
+            render()
+        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })
+        box.addView(row, mt(16))
+        if (o != null) {
+            box.addView(smallLink("Delete this order") {
+                android.app.AlertDialog.Builder(this).setMessage("Delete this order from your history?")
+                    .setNegativeButton("Keep", null)
+                    .setPositiveButton("Delete") { _, _ -> Store.delete(this, o.id); dlg.dismiss(); render() }.show()
+            }.apply { setTextColor(BAD) })
+        }
+        dlg.show()
     }
 
     private fun bump(key: String, d: Float, min: Float) {
@@ -521,6 +625,7 @@ class MainActivity : Activity() {
         m.addView(mono(f2(o.rpk), 14.5f).apply { setPadding(0, dp(3), 0, 0) })
         r.addView(m, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { })
         r.addView(mono(f2(o.fare), 14.5f).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.9f))
+        r.setOnClickListener { editOrder(o) }
         p.addView(r)
         p.addView(hair2())
     }

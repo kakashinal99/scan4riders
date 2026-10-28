@@ -39,6 +39,8 @@ object Store {
         save(ctx, rows)
     }
 
+    fun delete(ctx: Context, id: Long) = save(ctx, all(ctx).filter { it.id != id })
+
     fun get(ctx: Context, id: Long): Rec? = all(ctx).firstOrNull { it.id == id }
 
     fun clear(ctx: Context) = prefs(ctx).edit().clear().apply()
