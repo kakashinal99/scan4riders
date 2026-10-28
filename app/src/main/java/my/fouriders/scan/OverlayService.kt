@@ -57,6 +57,9 @@ class OverlayService : Service() {
 
     companion object {
         const val ACTION_STOP = "my.fouriders.scan.STOP"
+        const val ACTION_HIDE = "my.fouriders.scan.HIDE"
+        const val ACTION_SHOW = "my.fouriders.scan.SHOW"
+        @Volatile var hidden = false
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "scan"
@@ -124,6 +127,15 @@ class OverlayService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_HIDE || intent?.action == ACTION_SHOW) {
+            val hide = intent.action == ACTION_HIDE
+            hidden = hide
+            handler.post {
+                if (hide) closeCard()
+                pill?.visibility = if (hide) View.GONE else View.VISIBLE
+            }
             return START_NOT_STICKY
         }
         val code = intent?.getIntExtra(EXTRA_CODE, 0) ?: 0
@@ -543,10 +555,23 @@ class OverlayService : Service() {
             val h = pastScans().toMutableList()
             if (oldSig.isNotEmpty() && oldRpk > 0f) h.add(oldRpk.toDouble())
             val keep = h.takeLast(5).joinToString(",") { String.format(Locale.US, "%.3f", it) }
-            prefs.edit().putString("hist", keep).putString("curSig", sig).apply()
+            prefs.edit().putString("hist", keep).putString("curSig", sig).putLong("curId", System.currentTimeMillis()).apply()
             tookWhat = null
         }
         prefs.edit().putFloat("curRpk", rpk.toFloat()).apply()
+        saveRec(null)
+    }
+
+    /** Saves this order to the phone's history. decision: null keeps what was chosen, "" clears it. */
+    private fun saveRec(decision: String?) {
+        val v = verdict()
+        val rpk = v.rpk ?: return
+        val id = prefs.getLong("curId", 0L)
+        if (id == 0L) return
+        val stop = Session.stops.values.firstOrNull { it.collect } ?: Session.stops.values.firstOrNull()
+        val area = Store.areaOf(stop?.address.orEmpty())
+        val keep = Store.get(this, id)?.decision.orEmpty()
+        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
@@ -599,12 +624,6 @@ class OverlayService : Service() {
     private fun hair(): View = View(this).apply { setBackgroundColor(0xFFD5DAE2.toInt()) }
 
     private fun matchW() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-
-    private fun logDecision(v: Verdict, what: String) {
-        val line = "${System.currentTimeMillis()}|${v.word}|${v.rpk?.let { f2(it) } ?: "-"}|${f2(v.fare)}|${String.format(Locale.US, "%.1f", v.km)}|$what"
-        val old = prefs.getString("log", "").orEmpty().split("\n").filter { it.isNotBlank() }
-        prefs.edit().putString("log", (old + line).takeLast(300).joinToString("\n")).apply()
-    }
 
     private fun showCard() {
         closeCard()
@@ -787,7 +806,7 @@ class OverlayService : Service() {
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = null
-                setOnClickListener { tookWhat = null; refresh() }
+                setOnClickListener { tookWhat = null; saveRec(""); refresh() }
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
             box.addView(lr, matchW().apply { topMargin = dp(8) })
         } else {
@@ -800,7 +819,7 @@ class OverlayService : Service() {
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), DARK) }
-                setOnClickListener { tookWhat = "Skipped"; logDecision(v, "Skipped"); refresh() }
+                setOnClickListener { tookWhat = "Skipped"; saveRec("S"); refresh() }
             }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(5) })
             fr.addView(Button(this).apply {
                 text = "Take"
@@ -810,7 +829,7 @@ class OverlayService : Service() {
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = shape(GREEN, 12)
-                setOnClickListener { tookWhat = "Taken"; logDecision(v, "Taken"); refresh() }
+                setOnClickListener { tookWhat = "Taken"; saveRec("T"); refresh() }
             }, LinearLayout.LayoutParams(0, dp(56), 2f).apply { marginStart = dp(5) })
             box.addView(fr, matchW().apply { topMargin = dp(8) })
         }
@@ -1039,6 +1058,7 @@ class OverlayService : Service() {
 
     override fun onDestroy() {
         running = false
+        hidden = false
         handler.removeCallbacksAndMessages(null)
         closeCard()
         closeRaw()
