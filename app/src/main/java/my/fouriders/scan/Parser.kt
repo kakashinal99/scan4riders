@@ -4,7 +4,7 @@ import com.google.mlkit.vision.text.Text
 
 /** Turns the text read from a Grab "Route details" screen into fare and stops. */
 object Parser {
-    private val head = Regex("""^\s*(\d{1,2})\s*[.,]\s*(Collect from|Deliver to|Pick[\s-]?up item|Drop[\s-]?off item|Pick[\s-]?up|Drop[\s-]?off|Collect|Deliver)""", RegexOption.IGNORE_CASE)
+    private val head = Regex("""^\s*(?:[OoQ0●•©®]\s+)?(\d{1,2})\s*[.,]\s*(Collect from|Deliver to|Pick[\s-]?up item|Drop[\s-]?off item|Pick[\s-]?up|Drop[\s-]?off|Collect|Deliver)""", RegexOption.IGNORE_CASE)
     private val earn = Regex("""earn(?:ings)?\s*:?\s*RM\s*([0-9]+(?:[.,][0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
     private val sender = Regex("""^sender'?s name\s*:?\s*(.*)$""", RegexOption.IGNORE_CASE)
     private val parties = Regex("""^(sender|recipient)'?s name\s*:?|^(drop[\s-]?off|pick[\s-]?up)\s+details|^(hide|show)\s+details|^item details|^call |^chat with |^cancel booking""", RegexOption.IGNORE_CASE)
@@ -12,14 +12,14 @@ object Parser {
     private val plus = Regex("""^\s*\+\s*RM\s*([0-9]+(?:[.,][0-9]{1,2})?)""", RegexOption.IGNORE_CASE)
     private val left = Regex("""(\d+)\s*/\s*(\d+)\s*stops?""", RegexOption.IGNORE_CASE)
     private val labels = Regex(
-        """^(arrive by|order id|service|special instruction|payment method|no of items|booking id|hide|show|back to top|grabpay|promo|cash|grab(food|mart|express|pay))$""",
+        """^(arrive by|order\s*[i|l1]d|service|special instruction|payment method|no of items|booking id|hide|show|back to top|grabpay|promo|cash|grab(food|mart|express|pay))$""",
         RegexOption.IGNORE_CASE
     )
     private val time = Regex("""^\d{1,2}:\d{2}\s*(AM|PM)$""", RegexOption.IGNORE_CASE)
     private val rating = Regex("""^.{1,30}[\s.·•]+[0-5][.,]\d$""")
     // An id must contain a digit, or an all-capitals address line would be mistaken for one.
     private val ids = Regex("""^(?=.*\d)(?:[A-Z]{1,3}-?[0-9A-Z]{2,}(?:[,\s]+[A-Z]{1,3}-?[0-9A-Z]+)*|[A-Z]{1,3}(?:-[0-9A-Z]+)+)$""")
-    private val noise = Regex("""detected this screenshot""", RegexOption.IGNORE_CASE)
+    private val noise = Regex("""detected this screenshot|no order found|stops?\s*[·.]?\s*scroll|stops not seen|fare not seen|finding route|reading\.\.\.""", RegexOption.IGNORE_CASE)
 
     private class Ln(val top: Int, val left: Int, val s: String)
 
