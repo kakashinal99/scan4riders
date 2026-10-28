@@ -111,6 +111,8 @@ class OverlayService : Service() {
     private var legs: List<Leg> = emptyList()
     private var uncertain = false
     private var useBonus = false
+    private var tookWhat: String? = null
+    private var showMore = false
     private var lastRaw = ""
     private var armed = false
     private var moved = 0
@@ -542,6 +544,7 @@ class OverlayService : Service() {
             if (oldSig.isNotEmpty() && oldRpk > 0f) h.add(oldRpk.toDouble())
             val keep = h.takeLast(5).joinToString(",") { String.format(Locale.US, "%.3f", it) }
             prefs.edit().putString("hist", keep).putString("curSig", sig).apply()
+            tookWhat = null
         }
         prefs.edit().putFloat("curRpk", rpk.toFloat()).apply()
     }
@@ -587,6 +590,22 @@ class OverlayService : Service() {
         setOnLongClickListener { onLong(); true }
     }
 
+    private fun mono(text: String, size: Float, color: Int = DARK) = tv(text, size, color, true).apply {
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+    }
+
+    private fun label(text: String) = tv(text.uppercase(Locale.US), 11.5f, SOFT, true).apply { letterSpacing = 0.08f }
+
+    private fun hair(): View = View(this).apply { setBackgroundColor(0xFFD5DAE2.toInt()) }
+
+    private fun matchW() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+
+    private fun logDecision(v: Verdict, what: String) {
+        val line = "${System.currentTimeMillis()}|${v.word}|${v.rpk?.let { f2(it) } ?: "-"}|${f2(v.fare)}|${String.format(Locale.US, "%.1f", v.km)}|$what"
+        val old = prefs.getString("log", "").orEmpty().split("\n").filter { it.isNotBlank() }
+        prefs.edit().putString("log", (old + line).takeLast(300).joinToString("\n")).apply()
+    }
+
     private fun showCard() {
         closeCard()
         val v = verdict()
@@ -595,135 +614,133 @@ class OverlayService : Service() {
         val rej = c.getFloat("rej", 0.9f).toDouble()
         val ok = c.getFloat("ok", 1.2f).toDouble()
         val screen = wm.currentWindowMetrics.bounds
+        val kmTxt = String.format(Locale.US, "%.1f", v.km)
 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
+            setPadding(dp(16), dp(16), dp(16), dp(10))
             background = GradientDrawable().apply {
-                cornerRadius = dp(28).toFloat()
+                cornerRadii = floatArrayOf(dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat())
                 setColor(Color.WHITE)
                 setStroke(dp(1), 0xFFD6DBE6.toInt())
             }
         }
 
-        // top: small signal light + verdict word + rate
-        val head = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-        head.addView(Lamp(this, v.word))
-        val hv = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), 0, 0, 0)
-        }
-        hv.addView(tv(v.word, 22f, DARK, true).apply { letterSpacing = 0.04f })
+        // header: verdict tag + rate
+        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        head.addView(tv(v.word, 15f, if (v.word == "CONSIDER") DARK else Color.WHITE, true).apply {
+            letterSpacing = 0.06f
+            setPadding(dp(12), dp(6), dp(12), dp(6))
+            background = shape(v.color, 8)
+        })
+        head.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
         if (v.rpk != null) {
             val rate = android.text.SpannableStringBuilder(f2(v.rpk))
             val n = rate.length
             rate.append(" RM/km")
-            rate.setSpan(android.text.style.RelativeSizeSpan(0.45f), n, rate.length, 0)
-            hv.addView(TextView(this).apply {
+            rate.setSpan(android.text.style.RelativeSizeSpan(0.38f), n, rate.length, 0)
+            head.addView(TextView(this).apply {
                 text = rate
-                textSize = 32f
+                textSize = 34f
                 setTextColor(DARK)
                 typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             })
-            val mins = Math.round(v.km / KM_PER_H * 60).toInt()
-            hv.addView(tv("RM ${f2(v.fare)} ÷ ${String.format(Locale.US, "%.1f", v.km)} km · $mins min", 14f, SOFT))
-        } else {
-            hv.addView(tv(v.note, 14f, SOFT))
         }
-        head.addView(hv, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         box.addView(head)
+
+        // three aligned figures
+        if (v.rpk != null) {
+            val mins = Math.round(v.km / KM_PER_H * 60).toInt()
+            val kp = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val items = listOf("Pay" to f2(v.fare), "Distance" to "$kmTxt km", "Time" to "$mins min")
+            items.forEachIndexed { i, (k, x) ->
+                val col = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(if (i == 0) 0 else dp(12), dp(10), 0, dp(10))
+                }
+                col.addView(label(k))
+                col.addView(mono(x, 18f))
+                kp.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                if (i < 2) kp.addView(hair(), LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT))
+            }
+            box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(12) })
+            box.addView(kp, matchW())
+            box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+        } else {
+            box.addView(tv(v.note, 14f, SOFT).apply { setPadding(0, dp(10), 0, 0) })
+        }
 
         // what would flip the verdict
         val flip = flipText(v, rej, ok, minFare)
         if (flip != null) {
-            val tint = when (v.word) { "ACCEPT" -> GREEN_T; "REJECT" -> RED_T; else -> AMBER_T }
-            val fr = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = shape(tint, 16)
-            }
+            val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(4)) }
             fr.addView(TextView(this).apply {
                 text = if (v.word == "ACCEPT") "✓" else "!"
-                textSize = 14f
+                textSize = 13f
                 gravity = Gravity.CENTER
                 setTextColor(if (v.word == "CONSIDER") DARK else Color.WHITE)
                 setTypeface(typeface, Typeface.BOLD)
                 background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(v.color) }
-                layoutParams = LinearLayout.LayoutParams(dp(24), dp(24))
+                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
             })
-            fr.addView(tv(flip, 15f, DARK, true).apply { setPadding(dp(10), 0, 0, 0) })
-            box.addView(fr, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) })
+            fr.addView(tv(flip, 15f, DARK, true).apply { setPadding(dp(10), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            box.addView(fr, matchW())
         }
         val extra = (if (v.near) "Close to the limit, check the km. " else "") +
             (if (uncertain) "Stop count was not read, check every stop is below." else "")
-        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 13f, SOFT).apply { setPadding(0, dp(6), 0, 0) })
+        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 13f, SOFT).apply { setPadding(0, dp(2), 0, dp(2)) })
 
-        // last scans
-        val past = pastScans().takeLast(5)
-        if (v.rpk != null && past.isNotEmpty()) {
-            box.addView(Bars(this, past, v.rpk, v.color), LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(14) })
-            val beat = past.count { v.rpk > it }
-            val cap = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            cap.addView(tv("Your last ${past.size} scans", 12f, SOFT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            cap.addView(tv("Beats $beat of ${past.size}", 12f, SOFT, true))
-            box.addView(cap)
-        }
-
-        val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        // legs
         if (legs.any { it.q >= 1 || it.unknown }) {
-            box.addView(tv("Some places were not found exactly, so those distances are estimates and may be off. Tap the number to type the real km.", 13.5f, DARK, true).apply {
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = shape(AMBER_T, 14)
-            }, LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(12) })
+            box.addView(tv("Some places were not found exactly, so ~ distances are estimates and may be off. Tap a number to type the real km.", 13.5f, 0xFF8A5500.toInt(), true).apply {
+                setPadding(dp(12), dp(9), dp(12), dp(9))
+                background = shape(AMBER_T, 10)
+            }, matchW().apply { topMargin = dp(6); bottomMargin = dp(4) })
         }
-        box.addView(tv("Tap a place twice to copy its address. Tap a distance to type it.", 12.5f, SOFT).apply { setPadding(0, dp(12), 0, dp(2)) })
+
+        // route table
+        val th = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(6)) }
+        th.addView(label("Route"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        th.addView(label("km").apply { gravity = Gravity.CENTER; minWidth = dp(138) })
+        th.addView(View(this), LinearLayout.LayoutParams(dp(58), 1))
+        box.addView(th, matchW())
+        box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         for (leg in legs) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-                setPadding(0, dp(8), 0, dp(8))
-            }
+            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(5), 0, dp(5)) }
             val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
             txt.addView(placeButton(leg))
-            val mins = Math.round(leg.km / KM_PER_H * 60).toInt()
-            val detail = "from ${leg.from} · ${leg.src}" + (if (leg.unknown) "" else " · $mins min")
-            txt.addView(tv(detail, 13f, if (leg.unknown) RED else SOFT).apply { setPadding(dp(2), dp(4), 0, 0) })
-            if (leg.q >= 1 && !leg.unknown) {
-                txt.addView(tv("~ ${leg.how}. Check this one.", 12.5f, 0xFF9A5F00.toInt(), true).apply { setPadding(dp(2), dp(2), 0, 0) })
-            }
-            row.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val warn = leg.q >= 1 && !leg.unknown
+            val detail = "from ${leg.from}" + (if (warn) " · ${leg.how}" else if (leg.unknown) " · not found" else "")
+            txt.addView(tv(detail, 12.5f, if (leg.unknown) RED else if (warn) 0xFF8A5500.toInt() else SOFT, warn || leg.unknown).apply { setPadding(0, dp(1), 0, 0) })
+            row.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
             row.addView(stepBtn("−", { adjust(leg, -0.1) }, { adjust(leg, -1.0) }))
-            row.addView(tv((if (leg.q >= 1 && !leg.unknown) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 18f, DARK, true).apply {
+            row.addView(mono((if (warn) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 17f).apply {
                 gravity = Gravity.CENTER
                 minWidth = dp(54)
                 minHeight = dp(46)
                 paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
                 setOnClickListener { openEdit(leg) }
             })
             row.addView(stepBtn("+", { adjust(leg, 0.1) }, { adjust(leg, 1.0) }))
-            list.addView(row)
-            list.addView(View(this).apply { setBackgroundColor(0xFFE4E8EF.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(2)))
+            val mins = Math.round(leg.km / KM_PER_H * 60).toInt()
+            row.addView(tv(if (leg.unknown) "-" else "$mins min", 13f, SOFT, true).apply {
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+                gravity = Gravity.END
+                minWidth = dp(58)
+            })
+            box.addView(row, matchW())
+            box.addView(hair().apply { setBackgroundColor(0xFFE4E8EE.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         }
-        box.addView(list)
-        box.addView(tv("Distances are road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ.", 12f, SOFT).apply { setPadding(0, dp(8), 0, dp(2)) })
+        val tot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(2)) }
+        tot.addView(tv("Total", 15f, DARK, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        tot.addView(mono(kmTxt, 15f).apply { gravity = Gravity.CENTER; minWidth = dp(138) })
+        tot.addView(mono("${Math.round(v.km / KM_PER_H * 60)} min", 13f).apply { gravity = Gravity.END; minWidth = dp(58) })
+        box.addView(tot, matchW())
 
         val bonus = Session.bonus
         if (bonus != null) {
             box.addView(CheckBox(this).apply {
                 text = "Count the + RM ${f2(bonus)}"
-                textSize = 16f
+                textSize = 15f
                 setTextColor(DARK)
                 setTypeface(typeface, Typeface.BOLD)
                 buttonTintList = android.content.res.ColorStateList.valueOf(DARK)
@@ -736,42 +753,93 @@ class OverlayService : Service() {
                 }
             })
         }
-        val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        row.addView(Button(this).apply {
-            text = "Scan again"
+
+        // more: last scans + notes + scan again
+        if (showMore) {
+            val past = pastScans().takeLast(5)
+            if (v.rpk != null && past.isNotEmpty()) {
+                box.addView(label("Your last ${past.size} scans · this one beats ${past.count { v.rpk > it }} of ${past.size}"), matchW().apply { topMargin = dp(8); bottomMargin = dp(4) })
+                box.addView(Bars(this, past, v.rpk, v.color), matchW())
+            }
+            box.addView(tv("Road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ. Tap a place twice to copy its address.", 12.5f, SOFT).apply { setPadding(0, dp(8), 0, dp(2)) })
+            box.addView(Button(this).apply {
+                text = "Scan again"
+                isAllCaps = false
+                textSize = 15f
+                setTextColor(BLUE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = null
+                setOnClickListener { rescan() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+        }
+
+        // footer: Take / Skip (logged inside this app only, Grab is never touched)
+        val took = tookWhat
+        if (took != null) {
+            val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            lr.addView(tv("Logged as $took. Nothing was pressed in Grab.", 14f, DARK, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            lr.addView(Button(this).apply {
+                text = "Undo"
+                isAllCaps = false
+                textSize = 15f
+                setTextColor(BLUE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = null
+                setOnClickListener { tookWhat = null; refresh() }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
+            box.addView(lr, matchW().apply { topMargin = dp(8) })
+        } else {
+            val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            fr.addView(Button(this).apply {
+                text = "Skip"
+                isAllCaps = false
+                textSize = 17f
+                setTextColor(DARK)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), DARK) }
+                setOnClickListener { tookWhat = "Skipped"; logDecision(v, "Skipped"); refresh() }
+            }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(5) })
+            fr.addView(Button(this).apply {
+                text = "Take"
+                isAllCaps = false
+                textSize = 17f
+                setTextColor(Color.WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = shape(GREEN, 12)
+                setOnClickListener { tookWhat = "Taken"; logDecision(v, "Taken"); refresh() }
+            }, LinearLayout.LayoutParams(0, dp(56), 2f).apply { marginStart = dp(5) })
+            box.addView(fr, matchW().apply { topMargin = dp(8) })
+        }
+        val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        fun link(t: String, f: () -> Unit) = Button(this).apply {
+            text = t
             isAllCaps = false
-            textSize = 16f
-            setTextColor(DARK)
+            textSize = 14.5f
+            setTextColor(BLUE)
             setTypeface(typeface, Typeface.BOLD)
             stateListAnimator = null
-            background = shape(BTN, 16)
-            setOnClickListener { rescan() }
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
-        row.addView(Button(this).apply {
-            text = "Minimise"
-            isAllCaps = false
-            textSize = 16f
-            setTextColor(Color.WHITE)
-            setTypeface(typeface, Typeface.BOLD)
-            stateListAnimator = null
-            background = shape(DARK, 16)
-            setOnClickListener { closeCard() }
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })
-        box.addView(row, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(8) })
+            background = null
+            setOnClickListener { f() }
+        }
+        links.addView(link(if (showMore) "Less" else "More: last scans, notes") { showMore = !showMore; showCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)))
+        links.addView(link("Minimise") { closeCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = dp(16) })
+        box.addView(links, matchW())
 
         val lp = WindowManager.LayoutParams(
-            screen.width() - dp(24),
+            screen.width(),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(20)
+            y = 0
         }
-        val outer = CappedScroll(this, (screen.height() * 0.86f).toInt())
+        val outer = CappedScroll(this, (screen.height() * 0.9f).toInt())
         outer.addView(box)
         wm.addView(outer, lp)
         card = outer
