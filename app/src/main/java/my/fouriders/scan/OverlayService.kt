@@ -543,9 +543,9 @@ class OverlayService : Service() {
             for (i in 0 until n) {
                 val h = ((all[i] / mx).toFloat() * (base - top)).coerceAtLeast(6 * d)
                 val x = i * (bw + gap)
-                p.color = if (i == n - 1) nowColor else 0xFFCDD5E2.toInt()
+                p.color = if (i == n - 1) nowColor else 0xFF3B5145.toInt()
                 c.drawRoundRect(x, base - h, x + bw, base, 6 * d, 6 * d, p)
-                p.color = DARK
+                p.color = 0xFFF4F8F5.toInt()
                 c.drawText(String.format(Locale.US, "%.2f", all[i]), x + bw / 2, base - h - 4 * d, p)
             }
         }
@@ -641,6 +641,39 @@ class OverlayService : Service() {
 
     private fun matchW() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
+    // Dark "studio" card palette (mint on near-black, high contrast)
+    private val D_BG = 0xFF0B1513.toInt()
+    private val D_LINE = 0xFF2B4038.toInt()
+    private val D_PANEL = 0xFF15241F.toInt()
+    private val D_WHITE = 0xFFF4F8F5.toInt()
+    private val D_MUTED = 0xFFB5C9BE.toInt()
+    private val D_MINT = 0xFF79F2BD.toInt()
+    private val D_AMBER = 0xFFFFD27A.toInt()
+    private val D_RED = 0xFFFF8B8B.toInt()
+
+    private fun dBox(fill: Int, stroke: Int, r: Int) = GradientDrawable().apply {
+        cornerRadius = dp(r).toFloat()
+        setColor(fill)
+        setStroke(dp(1), stroke)
+    }
+
+    private fun dStep(label: String, plus: Boolean, onTap: () -> Unit, onLong: () -> Unit): Button = Button(this).apply {
+        text = label
+        isAllCaps = false
+        textSize = 22f
+        setTextColor(if (plus) 0xFF092219.toInt() else D_WHITE)
+        stateListAnimator = null
+        minWidth = 0
+        minimumWidth = 0
+        setPadding(0, 0, 0, 0)
+        background = dBox(if (plus) D_MINT else 0xFF22382E.toInt(), if (plus) D_MINT else 0xFF3D5A4C.toInt(), 12)
+        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginStart = dp(5) }
+        setOnClickListener { onTap() }
+        setOnLongClickListener { onLong(); true }
+    }
+
+    private fun dLab(t: String, color: Int = D_MUTED) = tv(t.uppercase(Locale.US), 10.5f, color, true).apply { letterSpacing = 0.1f }
+
     private fun showCard() {
         closeCard()
         val v = verdict()
@@ -650,135 +683,134 @@ class OverlayService : Service() {
         val ok = c.getFloat("ok", 1.2f).toDouble()
         val screen = wm.currentWindowMetrics.bounds
         val kmTxt = String.format(Locale.US, "%.1f", v.km)
+        val mins = Math.round(v.km / KM_PER_H * 60).toInt()
+        val vc = when (v.word) { "ACCEPT" -> D_MINT; "REJECT" -> D_RED; "CONSIDER" -> D_AMBER; else -> D_MUTED }
+        val vbg = when (v.word) { "ACCEPT" -> 0xFF163F2E.toInt(); "REJECT" -> 0xFF4A1D22.toInt(); "CONSIDER" -> 0xFF463719.toInt(); else -> 0xFF26332D.toInt() }
 
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(10))
-            background = GradientDrawable().apply {
-                cornerRadii = floatArrayOf(dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat(), dp(22).toFloat())
-                setColor(Color.WHITE)
-                setStroke(dp(1), 0xFFD6DBE6.toInt())
-            }
+            setPadding(dp(14), dp(14), dp(14), dp(8))
+            background = dBox(D_BG, D_LINE, 24)
         }
 
-        // header: verdict tag + rate
-        val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        head.addView(tv(v.word, 15f, if (v.word == "CONSIDER") DARK else Color.WHITE, true).apply {
+        // hero
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF1C3D30.toInt(), 0xFF10251F.toInt())).apply {
+                cornerRadius = dp(20).toFloat()
+                setStroke(dp(1), 0xFF315343.toInt())
+            }
+        }
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        top.addView(dLab("Trip assessment"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        top.addView(tv(v.word, 12f, vc, true).apply {
             letterSpacing = 0.06f
-            setPadding(dp(12), dp(6), dp(12), dp(6))
-            background = shape(v.color, 8)
+            setPadding(dp(10), dp(4), dp(10), dp(4))
+            background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(vbg); setStroke(dp(1), vc) }
         })
-        head.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
+        hero.addView(top)
         if (v.rpk != null) {
             val rate = android.text.SpannableStringBuilder(f2(v.rpk))
             val n = rate.length
-            rate.append(" RM/km")
-            rate.setSpan(android.text.style.RelativeSizeSpan(0.38f), n, rate.length, 0)
-            head.addView(TextView(this).apply {
+            rate.append("  RM / km")
+            rate.setSpan(android.text.style.RelativeSizeSpan(0.27f), n, rate.length, 0)
+            rate.setSpan(android.text.style.ForegroundColorSpan(D_MUTED), n, rate.length, 0)
+            hero.addView(TextView(this).apply {
                 text = rate
-                textSize = 34f
-                setTextColor(DARK)
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            })
-        }
-        box.addView(head)
-
-        // three aligned figures
-        if (v.rpk != null) {
-            val mins = Math.round(v.km / KM_PER_H * 60).toInt()
-            val kp = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val items = listOf("Pay" to f2(v.fare), "Distance" to "$kmTxt km", "Time" to "$mins min")
-            items.forEachIndexed { i, (k, x) ->
-                val col = LinearLayout(this).apply {
+                textSize = 50f
+                setTextColor(vc)
+                setTypeface(Typeface.DEFAULT_BOLD)
+                letterSpacing = -0.04f
+            }, matchW().apply { topMargin = dp(6) })
+            hero.addView(tv("RM ${f2(v.fare)} fare · $kmTxt km · $mins min est.", 13f, D_MUTED), matchW())
+            val grid = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            listOf("Total distance" to "$kmTxt km", "Est. duration" to "$mins min", "Offer fare" to "RM ${f2(v.fare)}").forEachIndexed { i, (k, x) ->
+                val cell = LinearLayout(this).apply {
                     orientation = LinearLayout.VERTICAL
-                    setPadding(if (i == 0) 0 else dp(12), dp(10), 0, dp(10))
+                    setPadding(dp(10), dp(8), dp(8), dp(8))
+                    background = dBox(0xCC081A14.toInt(), 0xFF496356.toInt(), 12)
                 }
-                col.addView(label(k))
-                col.addView(mono(x, 18f))
-                kp.addView(col, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                if (i < 2) kp.addView(hair(), LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT))
+                cell.addView(dLab(k).apply { textSize = 9.5f })
+                cell.addView(tv(x, 15f, D_WHITE, true))
+                grid.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { if (i > 0) marginStart = dp(7) })
             }
-            box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(12) })
-            box.addView(kp, matchW())
-            box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+            hero.addView(grid, matchW().apply { topMargin = dp(12) })
         } else {
-            box.addView(tv(v.note, 14f, SOFT).apply { setPadding(0, dp(10), 0, 0) })
+            hero.addView(tv(v.note, 14f, D_MUTED), matchW().apply { topMargin = dp(8) })
         }
+        box.addView(hero)
 
-        // what would flip the verdict
-        val flip = flipText(v, rej, ok, minFare)
-        if (flip != null) {
-            val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(4)) }
-            fr.addView(TextView(this).apply {
-                text = if (v.word == "ACCEPT") "✓" else "!"
-                textSize = 13f
+        // notice: what would flip the verdict
+        fun notice(text: String, icon: String, fg: Int, bg: Int, line: Int, bold: Boolean) {
+            val r = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                background = dBox(bg, line, 14)
+            }
+            r.addView(tv(icon, 13f, fg, true).apply {
                 gravity = Gravity.CENTER
-                setTextColor(if (v.word == "CONSIDER") DARK else Color.WHITE)
-                setTypeface(typeface, Typeface.BOLD)
-                background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(v.color) }
-                layoutParams = LinearLayout.LayoutParams(dp(22), dp(22))
-            })
-            fr.addView(tv(flip, 15f, DARK, true).apply { setPadding(dp(10), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            box.addView(fr, matchW())
+                background = dBox(line, line, 8)
+            }, LinearLayout.LayoutParams(dp(24), dp(24)))
+            r.addView(tv(text, 14f, D_WHITE, bold).apply { setPadding(dp(10), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            box.addView(r, matchW().apply { topMargin = dp(10) })
+        }
+        flipText(v, rej, ok, minFare)?.let {
+            when (v.word) {
+                "ACCEPT" -> notice(it, "✓", D_MINT, 0xFF123D2D.toInt(), 0xFF2E6B50.toInt(), true)
+                "REJECT" -> notice(it, "!", D_RED, 0xFF3A1A1D.toInt(), 0xFF6B2E33.toInt(), true)
+                else -> notice(it, "!", D_AMBER, 0xFF3B2D16.toInt(), 0xFF66512A.toInt(), true)
+            }
         }
         val extra = (if (v.near) "Close to the limit, check the km. " else "") +
             (if (uncertain) "Stop count was not read, check every stop is below." else "")
-        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 13f, SOFT).apply { setPadding(0, dp(2), 0, dp(2)) })
-
+        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 12.5f, D_MUTED).apply { setPadding(0, dp(6), 0, 0) })
         if (legs.any { it.q >= 1 || it.unknown }) {
-            box.addView(tv("Some places were not found exactly, so ~ distances are estimates and may be off. Tap a number to type the real km.", 13.5f, 0xFF8A5500.toInt(), true).apply {
-                setPadding(dp(12), dp(9), dp(12), dp(9))
-                background = shape(AMBER_T, 10)
-            }, matchW().apply { topMargin = dp(6); bottomMargin = dp(4) })
+            notice("Some places were not found exactly, so ~ distances are estimates and may be off. Tap a number to type the real km.", "!", D_AMBER, 0xFF3B2D16.toInt(), 0xFF66512A.toInt(), false)
         }
 
-        // route table
-        val th = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(6)) }
-        th.addView(label("Route"), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        th.addView(label("km").apply { gravity = Gravity.CENTER; minWidth = dp(138) })
-        th.addView(View(this), LinearLayout.LayoutParams(dp(58), 1))
-        box.addView(th, matchW())
-        box.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
-        for (leg in legs) {
-            val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(5), 0, dp(5)) }
-            val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            txt.addView(placeButton(leg))
+        // route breakdown
+        box.addView(tv("Route breakdown", 16f, D_WHITE, true), matchW().apply { topMargin = dp(14) })
+        box.addView(tv("Tap − or + to fine-tune. Tap the number to type it. Tap a place twice to copy its address.", 11.5f, D_MUTED), matchW().apply { bottomMargin = dp(8) })
+        legs.forEachIndexed { i, leg ->
             val warn = leg.q >= 1 && !leg.unknown
-            val detail = "from ${leg.from}" + (if (warn) " · ${leg.how}" else if (leg.unknown) " · not found" else "")
-            txt.addView(tv(detail, 12.5f, if (leg.unknown) RED else if (warn) 0xFF8A5500.toInt() else SOFT, warn || leg.unknown).apply { setPadding(0, dp(1), 0, 0) })
-            row.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(6) })
-            row.addView(stepBtn("−", { adjust(leg, -0.1) }, { adjust(leg, -1.0) }))
-            row.addView(mono((if (warn) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 17f).apply {
+            val card = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(10), dp(8), dp(8), dp(8))
+                background = dBox(D_PANEL, if (warn) 0xFF66512A.toInt() else D_LINE, 15)
+            }
+            card.addView(tv("${i + 1}", 14f, D_MINT, true).apply {
                 gravity = Gravity.CENTER
-                minWidth = dp(54)
-                minHeight = dp(46)
+                background = dBox(0xFF203B30.toInt(), 0xFF355747.toInt(), 11)
+            }, LinearLayout.LayoutParams(dp(30), dp(30)))
+            val txt = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(10), 0, dp(4), 0) }
+            txt.addView(placeButton(leg))
+            val lm = Math.round(leg.km / KM_PER_H * 60).toInt()
+            val meta = "from ${leg.from}" + (if (leg.unknown) " · not found" else if (warn) " · ${leg.how}" else " · $lm min")
+            txt.addView(tv(meta, 11.5f, if (leg.unknown) D_RED else if (warn) D_AMBER else D_MUTED, warn || leg.unknown))
+            card.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            card.addView(dStep("−", false, { adjust(leg, -0.1) }, { adjust(leg, -1.0) }))
+            card.addView(tv((if (warn) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 17f, D_WHITE, true).apply {
+                gravity = Gravity.CENTER
+                minWidth = dp(46)
+                minHeight = dp(44)
                 paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
+                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
                 setOnClickListener { openEdit(leg) }
             })
-            row.addView(stepBtn("+", { adjust(leg, 0.1) }, { adjust(leg, 1.0) }))
-            val mins = Math.round(leg.km / KM_PER_H * 60).toInt()
-            row.addView(tv(if (leg.unknown) "-" else "$mins min", 13f, SOFT, true).apply {
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                gravity = Gravity.END
-                minWidth = dp(58)
-            })
-            box.addView(row, matchW())
-            box.addView(hair().apply { setBackgroundColor(0xFFE4E8EE.toInt()) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+            card.addView(dStep("+", true, { adjust(leg, 0.1) }, { adjust(leg, 1.0) }))
+            box.addView(card, matchW().apply { topMargin = dp(7) })
         }
-        val tot = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(2)) }
-        tot.addView(tv("Total", 15f, DARK, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        tot.addView(mono(kmTxt, 15f).apply { gravity = Gravity.CENTER; minWidth = dp(138) })
-        tot.addView(mono("${Math.round(v.km / KM_PER_H * 60)} min", 13f).apply { gravity = Gravity.END; minWidth = dp(58) })
-        box.addView(tot, matchW())
 
         val bonus = Session.bonus
         if (bonus != null) {
             box.addView(CheckBox(this).apply {
                 text = "Count the + RM ${f2(bonus)}"
                 textSize = 15f
-                setTextColor(DARK)
+                setTextColor(D_WHITE)
                 setTypeface(typeface, Typeface.BOLD)
-                buttonTintList = android.content.res.ColorStateList.valueOf(DARK)
+                buttonTintList = android.content.res.ColorStateList.valueOf(D_MINT)
                 minHeight = dp(48)
                 isChecked = useBonus
                 setOnCheckedChangeListener { _, on ->
@@ -789,19 +821,18 @@ class OverlayService : Service() {
             })
         }
 
-        // more: last scans + notes + scan again
         if (showMore) {
             val past = pastScans().takeLast(5)
             if (v.rpk != null && past.isNotEmpty()) {
-                box.addView(label("Your last ${past.size} scans · this one beats ${past.count { v.rpk > it }} of ${past.size}"), matchW().apply { topMargin = dp(8); bottomMargin = dp(4) })
-                box.addView(Bars(this, past, v.rpk, v.color), matchW())
+                box.addView(dLab("Your last ${past.size} scans · beats ${past.count { v.rpk > it }} of ${past.size}"), matchW().apply { topMargin = dp(8); bottomMargin = dp(4) })
+                box.addView(Bars(this, past, v.rpk, vc), matchW())
             }
-            box.addView(tv("Road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ. Tap a place twice to copy its address.", 12.5f, SOFT).apply { setPadding(0, dp(8), 0, dp(2)) })
+            box.addView(tv("Road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ.", 11.5f, D_MUTED).apply { setPadding(0, dp(8), 0, dp(2)) })
             box.addView(Button(this).apply {
                 text = "Scan again"
                 isAllCaps = false
                 textSize = 15f
-                setTextColor(BLUE)
+                setTextColor(D_MINT)
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = null
@@ -809,16 +840,16 @@ class OverlayService : Service() {
             }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
         }
 
-        // footer: Take / Skip (logged inside this app only, Grab is never touched)
+        // Take / Skip (saved inside this app only)
         val took = tookWhat
         if (took != null) {
             val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            lr.addView(tv("Logged as $took. Nothing was pressed in Grab.", 14f, DARK, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            lr.addView(tv("Logged as $took. Nothing was pressed in Grab.", 13.5f, D_WHITE, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             lr.addView(Button(this).apply {
                 text = "Undo"
                 isAllCaps = false
                 textSize = 15f
-                setTextColor(BLUE)
+                setTextColor(D_MINT)
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = null
@@ -830,49 +861,49 @@ class OverlayService : Service() {
             fr.addView(Button(this).apply {
                 text = "Skip"
                 isAllCaps = false
-                textSize = 17f
-                setTextColor(DARK)
+                textSize = 16f
+                setTextColor(0xFFE5F2E9.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
-                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), DARK) }
+                background = dBox(0xFF24362E.toInt(), 0xFF3B5145.toInt(), 12)
                 setOnClickListener { saveRec("S"); clearScan("Skipped, scanner cleared") }
-            }, LinearLayout.LayoutParams(0, dp(56), 1f).apply { marginEnd = dp(5) })
+            }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { marginEnd = dp(5) })
             fr.addView(Button(this).apply {
                 text = "Take"
                 isAllCaps = false
-                textSize = 17f
-                setTextColor(Color.WHITE)
+                textSize = 16f
+                setTextColor(0xFF0B2117.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
-                background = shape(GREEN, 12)
+                background = dBox(D_MINT, D_MINT, 12)
                 setOnClickListener { tookWhat = "Taken"; saveRec("T"); refresh() }
-            }, LinearLayout.LayoutParams(0, dp(56), 2f).apply { marginStart = dp(5) })
+            }, LinearLayout.LayoutParams(0, dp(54), 1.15f).apply { marginStart = dp(5) })
             box.addView(fr, matchW().apply { topMargin = dp(8) })
         }
         val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         fun link(t: String, f: () -> Unit) = Button(this).apply {
             text = t
             isAllCaps = false
-            textSize = 14.5f
-            setTextColor(BLUE)
+            textSize = 14f
+            setTextColor(D_MINT)
             setTypeface(typeface, Typeface.BOLD)
             stateListAnimator = null
             background = null
             setOnClickListener { f() }
         }
         links.addView(link(if (showMore) "Less" else "More: last scans, notes") { showMore = !showMore; showCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)))
-        links.addView(link("Minimise") { closeCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = dp(16) })
+        links.addView(link("Minimise ↑") { closeCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = dp(16) })
         box.addView(links, matchW())
 
         val lp = WindowManager.LayoutParams(
-            screen.width(),
+            screen.width() - dp(16),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = 0
+            y = dp(8)
         }
         val outer = CappedScroll(this, (screen.height() * 0.9f).toInt())
         outer.addView(box)
@@ -894,9 +925,8 @@ class OverlayService : Service() {
 
     private fun placeButton(leg: Leg): TextView {
         val name = (leg.stop?.name ?: "Place").substringBefore(" - ").take(40)
-        val t = tv("📍 $name", 15f, DARK, true).apply {
-            setPadding(dp(10), dp(8), dp(10), dp(8))
-            background = shape(0xFFEEF2FA.toInt(), 12)
+        val t = tv(name, 14f, 0xFFF4F8F5.toInt(), true).apply {
+            setPadding(0, dp(6), dp(4), dp(4))
         }
         val addr = leg.stop?.address.orEmpty()
         val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
@@ -907,8 +937,8 @@ class OverlayService : Service() {
                 } else {
                     getSystemService(ClipboardManager::class.java)
                         .setPrimaryClip(ClipData.newPlainText("address", addr))
-                    t.background = shape(GREEN_T, 12)
-                    handler.postDelayed({ t.background = shape(0xFFEEF2FA.toInt(), 12) }, 600)
+                    t.setTextColor(0xFF79F2BD.toInt())
+                    handler.postDelayed({ t.setTextColor(0xFFF4F8F5.toInt()) }, 700)
                     shortToast("Address copied")
                 }
                 return true
