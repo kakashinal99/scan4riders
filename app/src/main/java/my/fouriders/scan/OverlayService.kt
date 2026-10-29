@@ -101,6 +101,7 @@ class OverlayService : Service() {
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
     private var pill: TextView? = null
+    private var controls: View? = null
     private var card: View? = null
     private var raw: View? = null
     private var editPanel: View? = null
@@ -363,6 +364,7 @@ class OverlayService : Service() {
     /** After a Skip the order is forgotten, so the chip goes back to Scan and the next order starts clean. */
     private fun clearScan(msg: String) {
         handler.removeCallbacks(settle)
+        closeControls()
         closeCard()
         Session.reset()
         legs = emptyList()
@@ -1177,6 +1179,7 @@ class OverlayService : Service() {
         running = false
         hidden = false
         handler.removeCallbacksAndMessages(null)
+        closeControls()
         closeCard()
         closeRaw()
         pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
