@@ -65,24 +65,24 @@ class OverlayService : Service() {
         private const val CHANNEL = "scan"
         @Volatile var running = false
         // Daylight palette: strong colours that stay readable in noon sun.
-        private const val BLUE = 0xFF0B57D0.toInt()
+        private const val BLUE = 0xFF65E6A2.toInt()
         private const val GREY = 0xFF5A6678.toInt()
         private const val AMBER = 0xFFF29C00.toInt()
-        private const val GREEN = 0xFF0F8A43.toInt()
+        private const val GREEN = 0xFF65E6A2.toInt()
         private const val ORANGE = 0xFFF29C00.toInt()
         private const val RED = 0xFFD9263A.toInt()
         private const val INK = 0xFFEAF1FF.toInt()   // raw-text debug panel (dark)
-        private const val DARK = 0xFF0D1220.toInt()  // text on light surfaces
-        private const val SOFT = 0xFF3D4756.toInt()  // secondary text, still strong
-        private const val BTN = 0xFFE8ECF3.toInt()
-        private const val GREEN_T = 0xFFDCF5E5.toInt()
+        private const val DARK = 0xFF0C1110.toInt()  // floating pill background
+        private const val SOFT = 0xFF8E9B95.toInt()  // secondary text
+        private const val BTN = 0xFF19251F.toInt()
+        private const val GREEN_T = 0xFF193B2A.toInt()
         private const val AMBER_T = 0xFFFFEFC7.toInt()
         private const val RED_T = 0xFFFDE0E4.toInt()
         private const val KM_PER_H = 24.0
         private const val FUEL_PER_KM = 0.14
     }
 
-    private enum class St { IDLE, READING, ROUTING, NEED_MORE, RESULT, ERROR }
+    private enum class St { IDLE, READING, ROUTING, NEED_MORE, RESULT, PAUSED, ERROR }
 
     private class Leg(
         val label: String, var src: String, var km: Double, var unknown: Boolean,
@@ -283,11 +283,81 @@ class OverlayService : Service() {
         sb.setSpan(android.text.style.RelativeSizeSpan(1.35f), 0, 1, 0)
         sb.append(text)
         pill?.text = sb
+        pill?.setTextColor(INK)
         pill?.background = GradientDrawable().apply {
-            cornerRadius = dp(26).toFloat()
-            setColor(Color.WHITE)
-            setStroke(dp(3), color)
+            cornerRadius = dp(28).toFloat()
+            setColor(DARK)
+            setStroke(dp(2), color)
         }
+    }
+
+    private fun showControls() {
+        if (!::wm.isInitialized || pill == null) return
+        closeControls()
+        val panel = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(7), dp(7), dp(7), dp(7))
+            background = GradientDrawable().apply {
+                cornerRadius = dp(22).toFloat()
+                setColor(0xFF151B19.toInt())
+                setStroke(dp(1), 0xFF35443B.toInt())
+            }
+            elevation = dp(8).toFloat()
+        }
+        fun option(label: String, color: Int, action: () -> Unit) {
+            val b = TextView(this).apply {
+                text = label
+                textSize = 12f
+                gravity = Gravity.CENTER
+                setTextColor(color)
+                setTypeface(typeface, Typeface.BOLD)
+                setPadding(dp(10), dp(12), dp(10), dp(12))
+                background = GradientDrawable().apply {
+                    cornerRadius = dp(15).toFloat()
+                    setColor(0xFF202925.toInt())
+                }
+                setOnClickListener { closeControls(); action() }
+            }
+            panel.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(3); marginEnd = dp(3)
+            })
+        }
+        option("CONTINUE", 0xFF65E6A2.toInt()) {
+            handler.removeCallbacks(settle)
+            autoCount = 0
+            if (state == St.PAUSED) setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
+            capture()
+        }
+        option("PAUSE", 0xFFF2C66D.toInt()) {
+            handler.removeCallbacks(settle)
+            armed = false
+            setState(St.PAUSED, "PAUSED", AMBER)
+        }
+        option("STOP", 0xFFFF7D83.toInt()) {
+            stopSelf()
+        }
+        val lp = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            PixelFormat.TRANSLUCENT
+        ).apply {
+            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
+            x = 0
+            y = dp(320)
+        }
+        try {
+            wm.addView(panel, lp)
+            controls = panel
+        } catch (_: Exception) { }
+    }
+
+    private fun closeControls() {
+        val v = controls ?: return
+        try { wm.removeView(v) } catch (_: Exception) { }
+        controls = null
     }
 
     /** After a Skip the order is forgotten, so the chip goes back to Scan and the next order starts clean. */
@@ -314,12 +384,13 @@ class OverlayService : Service() {
 
     private fun onPillTap() {
         when (state) {
-            St.IDLE, St.NEED_MORE, St.ERROR -> {
+            St.IDLE -> {
                 if (card != null) closeCard()
                 capture()
             }
+            St.NEED_MORE, St.PAUSED, St.ERROR -> showControls()
             St.RESULT -> if (card == null) showCard() else closeCard()
-            else -> {}
+            else -> showControls()
         }
     }
 
@@ -392,17 +463,17 @@ class OverlayService : Service() {
         val total = Session.total
         val have = Session.stops.size
         if (total != null && Session.missing().isNotEmpty()) {
-            setState(St.NEED_MORE, "$have/$total stops · scroll", AMBER)
+            setState(St.NEED_MORE, "SCANNING · $have/$total stops", GREEN)
             armAuto()
             return
         }
         if (Session.stops.isEmpty()) {
-            setState(St.NEED_MORE, "Stops not seen · scroll", AMBER)
+            setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
             armAuto()
             return
         }
         if (Session.fare == null) {
-            setState(St.NEED_MORE, "Fare not seen · scroll up", AMBER)
+            setState(St.NEED_MORE, "SCANNING · scroll for fare", GREEN)
             armAuto()
             return
         }
