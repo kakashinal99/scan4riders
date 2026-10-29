@@ -1,7 +1,11 @@
 package my.fouriders.scan
 
 import android.Manifest
-import android.app.Activity
+import androidx.activity.ComponentActivity
+import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import androidx.compose.ui.platform.setContent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -30,7 +34,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
 
     companion object {
         private val BG = Color.parseColor("#0C1110")
@@ -176,22 +180,18 @@ class MainActivity : Activity() {
     // ---------- screens ----------
 
     private fun header(p: LinearLayout, title: String, sub: String) {
-        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val l = col()
-        l.addView(tv(title, 24f, INK, true))
-        l.addView(tv(sub, 13f, MUT, false))
-        r.addView(l, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val state = when {
             !OverlayService.running -> Triple("Scanner off", BAD, false)
             OverlayService.hidden -> Triple("Scanner hidden", MID, false)
             else -> Triple("Scanner on", OK, true)
         }
-        r.addView(tv("●  " + state.first, 13f, INK, true).apply {
-            setPadding(dp(12), 0, dp(12), 0)
-            gravity = Gravity.CENTER
-            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(BG); setStroke(dp(2), INK) }
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
-        p.addView(r)
+        val composeHeader = ComposeView(this).apply {
+            setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnViewTreeLifecycleDestroyed)
+            setContent {
+                RidersHeader(title, sub, state.first, ComposeColor(state.second))
+            }
+        }
+        p.addView(composeHeader, mt(4))
     }
 
     private fun today(p: LinearLayout) {
