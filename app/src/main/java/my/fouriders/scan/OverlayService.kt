@@ -295,51 +295,92 @@ class OverlayService : Service() {
     private fun showControls() {
         if (!::wm.isInitialized || pill == null) return
         closeControls()
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
+        val menu = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(7), dp(7), dp(7))
             background = GradientDrawable().apply {
-                cornerRadius = dp(22).toFloat()
-                setColor(0xFF151B19.toInt())
-                setStroke(dp(1), 0xFF35443B.toInt())
+                cornerRadius = dp(18).toFloat()
+                setColor(0xFF111C22.toInt())
+                setStroke(dp(1), 0xFF2B4248.toInt())
             }
-            elevation = dp(8).toFloat()
+            elevation = dp(12).toFloat()
         }
-        fun option(label: String, color: Int, action: () -> Unit) {
-            val b = TextView(this).apply {
-                text = label
-                textSize = 12f
-                gravity = Gravity.CENTER
-                setTextColor(color)
-                setTypeface(typeface, Typeface.BOLD)
-                setPadding(dp(10), dp(12), dp(10), dp(12))
+        fun option(icon: String, title: String, subtitle: String, color: Int, selected: Boolean, action: () -> Unit) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(9), dp(10), dp(9), dp(10))
                 background = GradientDrawable().apply {
-                    cornerRadius = dp(15).toFloat()
-                    setColor(0xFF202925.toInt())
+                    cornerRadius = dp(12).toFloat()
+                    setColor(if (selected) when (title) {
+                        "Scan ON" -> 0xFF0D3028.toInt()
+                        "Pause" -> 0xFF14283A.toInt()
+                        else -> 0xFF321B1D.toInt()
+                    } else Color.TRANSPARENT)
                 }
                 setOnClickListener { closeControls(); action() }
             }
-            panel.addView(b, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                marginStart = dp(3); marginEnd = dp(3)
+            val glyph = TextView(this).apply {
+                text = icon
+                textSize = 19f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) color else 0xFFE8F0F1.toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(0xFF111C22.toInt())
+                    setStroke(dp(1), if (selected) color else 0xFF31444A.toInt())
+                }
+            }
+            row.addView(glyph, LinearLayout.LayoutParams(dp(36), dp(36)))
+            val labels = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, dp(8), 0)
+            }
+            labels.addView(TextView(this).apply {
+                text = title
+                textSize = 14f
+                setTextColor(if (selected) color else 0xFFE8F0F1.toInt())
+                setTypeface(typeface, Typeface.BOLD)
             })
+            labels.addView(TextView(this).apply {
+                text = subtitle
+                textSize = 11f
+                setTextColor(0xFF91A5AC.toInt())
+                setPadding(0, dp(2), 0, 0)
+            })
+            row.addView(labels, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            row.addView(TextView(this).apply {
+                text = if (selected) "●" else "○"
+                textSize = 16f
+                gravity = Gravity.CENTER
+                setTextColor(if (selected) color else 0xFF52656D.toInt())
+            }, LinearLayout.LayoutParams(dp(22), dp(30)))
+            menu.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        option("CONTINUE", 0xFF65E6A2.toInt()) {
+        option("⌗", "Scan ON", "Detect order pada skrin", 0xFF25E0A7.toInt(), state != St.PAUSED && state != St.IDLE && state != St.ERROR) {
             handler.removeCallbacks(settle)
             autoCount = 0
-            if (state == St.PAUSED) setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
+            if (state == St.PAUSED || state == St.IDLE || state == St.ERROR) setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
             capture()
         }
-        option("PAUSE", 0xFFF2C66D.toInt()) {
+        val divider = View(this).apply { setBackgroundColor(0xFF26383D.toInt()) }
+        menu.addView(divider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+            topMargin = dp(3); bottomMargin = dp(3); marginStart = dp(7); marginEnd = dp(7)
+        })
+        option("Ⅱ", "Pause", "Berhenti sementara", 0xFF7BBCFF.toInt(), state == St.PAUSED) {
             handler.removeCallbacks(settle)
             armed = false
-            setState(St.PAUSED, "PAUSED", AMBER)
+            setState(St.PAUSED, "PAUSE", 0xFF7BBCFF.toInt())
         }
-        option("STOP", 0xFFFF7D83.toInt()) {
-            stopSelf()
-        }
+        val divider2 = View(this).apply { setBackgroundColor(0xFF26383D.toInt()) }
+        menu.addView(divider2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+            topMargin = dp(3); bottomMargin = dp(3); marginStart = dp(7); marginEnd = dp(7)
+        })
+        option("⏻", "OFF", "Matikan scanner", 0xFFFF6868.toInt(), false) { stopSelf() }
+
+        val screen = wm.currentWindowMetrics.bounds
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
+            minOf(dp(290), screen.width() - dp(24)),
             WindowManager.LayoutParams.WRAP_CONTENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
@@ -350,8 +391,8 @@ class OverlayService : Service() {
             y = dp(320)
         }
         try {
-            wm.addView(panel, lp)
-            controls = panel
+            wm.addView(menu, lp)
+            controls = menu
         } catch (_: Exception) { }
     }
 
