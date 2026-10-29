@@ -5,7 +5,6 @@ import androidx.activity.ComponentActivity
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
-import androidx.compose.ui.platform.setContent
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -813,7 +812,7 @@ class MainActivity : ComponentActivity() {
         launchCapture()
     }
 
-    override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, res: IntArray) {
+    override fun onRequestPermissionsResult(code: Int, perms: Array<String>, res: IntArray) {
         super.onRequestPermissionsResult(code, perms, res)
         if (code == 200) launchCapture()
     }
