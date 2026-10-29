@@ -33,18 +33,18 @@ import java.util.Locale
 class MainActivity : Activity() {
 
     companion object {
-        private val BG = Color.parseColor("#EEF0F4")
-        private val INK = Color.parseColor("#10151F")
-        private val MUT = Color.parseColor("#4A5463")
-        private val LINE = Color.parseColor("#D5DAE2")
-        private val LINE2 = Color.parseColor("#E4E8EE")
-        private val SOFTBG = Color.parseColor("#ECEFF4")
-        private val BLUE = Color.parseColor("#0B57D0")
-        private val OK = Color.parseColor("#0F8A43")
-        private val MID = Color.parseColor("#F29C00")
-        private val BAD = Color.parseColor("#D9263A")
-        private val WARNT = Color.parseColor("#FFF2D1")
-        private val GREYBAR = Color.parseColor("#CDD5E2")
+        private val BG = Color.parseColor("#0C1110")
+        private val INK = Color.parseColor("#F4F7F5")
+        private val MUT = Color.parseColor("#8E9B95")
+        private val LINE = Color.parseColor("#27322D")
+        private val LINE2 = Color.parseColor("#1B2420")
+        private val SOFTBG = Color.parseColor("#19251F")
+        private val BLUE = Color.parseColor("#65E6A2")
+        private val OK = Color.parseColor("#65E6A2")
+        private val MID = Color.parseColor("#F2C66D")
+        private val BAD = Color.parseColor("#FF7D83")
+        private val WARNT = Color.parseColor("#352A16")
+        private val GREYBAR = Color.parseColor("#3B5145")
     }
 
     private var tab = 0
@@ -63,15 +63,15 @@ class MainActivity : Activity() {
     // ---------- shell ----------
 
     private fun buildUi() {
-        window.statusBarColor = Color.WHITE
-        window.navigationBarColor = Color.WHITE
+        window.statusBarColor = BG
+        window.navigationBarColor = BG
         window.insetsController?.setSystemBarsAppearance(
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
             WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
         )
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(BG)
             fitsSystemWindows = true
         }
         content = ScrollView(this)
@@ -189,7 +189,7 @@ class MainActivity : Activity() {
         r.addView(tv("●  " + state.first, 13f, INK, true).apply {
             setPadding(dp(12), 0, dp(12), 0)
             gravity = Gravity.CENTER
-            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(Color.WHITE); setStroke(dp(2), INK) }
+            background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(BG); setStroke(dp(2), INK) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(34)))
         p.addView(r)
     }
@@ -257,7 +257,7 @@ class MainActivity : Activity() {
             setTextColor(BLUE)
             setTypeface(typeface, Typeface.BOLD)
             stateListAnimator = null
-            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), BLUE) }
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(BG); setStroke(dp(2), BLUE) }
             setOnClickListener { editOrder(null) }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(10) })
         p.addView(tv("Tap an order to edit or delete it.", 12.5f, MUT), mt(6))
@@ -335,9 +335,9 @@ class MainActivity : Activity() {
             stateListAnimator = null
             if (running && !OverlayService.hidden) {
                 setTextColor(INK)
-                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.WHITE); setStroke(dp(2), INK) }
+                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(BG); setStroke(dp(2), INK) }
             } else {
-                setTextColor(Color.WHITE)
+                setTextColor(BG)
                 background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(INK) }
             }
             setOnClickListener {
@@ -397,7 +397,7 @@ class MainActivity : Activity() {
         if (decimal) inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
         setSelectAllOnFocus(true)
         setPadding(dp(12), 0, dp(12), 0)
-        background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(Color.parseColor("#F1F4F9")); setStroke(dp(1), LINE) }
+        background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(Color.parseColor("#19251F")); setStroke(dp(1), LINE) }
     }
 
     /** Edit, delete or add one order in the history. o == null adds a new one. */
@@ -447,8 +447,8 @@ class MainActivity : Activity() {
             background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(bg); if (stroke != 0) setStroke(dp(2), stroke) }
             setOnClickListener { f() }
         }
-        row.addView(btn("Cancel", Color.WHITE, INK, INK) { dlg.dismiss() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
-        row.addView(btn("Save", INK, Color.WHITE, 0) {
+        row.addView(btn("Cancel", BG, INK, INK) { dlg.dismiss() }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
+        row.addView(btn("Save", INK, BG, 0) {
             val fare = fFare.text.toString().replace(',', '.').toDoubleOrNull()
             val km = fKm.text.toString().replace(',', '.').toDoubleOrNull()
             if (fare == null || km == null || km <= 0 || fare < 0) { toast("Type the fare and distance as numbers"); return@btn }
@@ -599,7 +599,7 @@ class MainActivity : Activity() {
 
     private fun tag(word: String): View {
         val col = when (word) { "ACCEPT" -> OK; "REJECT" -> BAD; else -> MID }
-        return tv(word, 10.5f, if (word == "CONSIDER") INK else Color.WHITE, true).apply {
+        return tv(word, 10.5f, if (word == "CONSIDER") INK else BG, true).apply {
             letterSpacing = 0.06f
             setPadding(dp(8), dp(3), dp(8), dp(3))
             background = GradientDrawable().apply { cornerRadius = dp(6).toFloat(); setColor(col) }
@@ -663,7 +663,7 @@ class MainActivity : Activity() {
         opts.forEachIndexed { i, s ->
             r.addView(tv(s, 13.5f, INK, true).apply {
                 gravity = Gravity.CENTER
-                if (i == sel) background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(Color.WHITE); setStroke(dp(1), LINE) }
+                if (i == sel) background = GradientDrawable().apply { cornerRadius = dp(10).toFloat(); setColor(BG); setStroke(dp(1), LINE) }
                 setOnClickListener { on(i) }
             }, LinearLayout.LayoutParams(0, dp(42), 1f))
         }
@@ -672,7 +672,7 @@ class MainActivity : Activity() {
 
     private fun checkRow(t: String, good: Boolean, state: String, onTap: () -> Unit): View {
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(10), 0, dp(10)); setOnClickListener { onTap() } }
-        r.addView(tv(if (good) "✓" else "–", 13f, Color.WHITE, true).apply {
+        r.addView(tv(if (good) "✓" else "–", 13f, BG, true).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(if (good) OK else Color.parseColor("#9AA6B8")) }
         }, LinearLayout.LayoutParams(dp(22), dp(22)))
@@ -756,7 +756,7 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
             fitsSystemWindows = true
-            setBackgroundColor(Color.WHITE)
+            setBackgroundColor(BG)
         }
         box.addView(TextView(this).apply {
             text = "The app crashed last time. Send a screenshot of this to Claude."
