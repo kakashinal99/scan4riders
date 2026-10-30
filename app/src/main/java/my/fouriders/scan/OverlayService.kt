@@ -988,19 +988,35 @@ class OverlayService : Service() {
         // SKIP / AMBIL ORDER (saved inside this app only)
         val took = tookWhat
         if (took != null) {
+            // Accepted: show IN PROGRESS and the same-position button now completes the order and resets the scanner.
             val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            lr.addView(tv("Logged as $took. Nothing was pressed in Grab.", 13.5f, D_WHITE, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            lr.addView(tv("IN PROGRESS", 9f, P_MINT, true).apply {
+                letterSpacing = 0.11f
+                setPadding(dp(8), dp(5), dp(8), dp(5))
+                background = dBox(0xFF193323.toInt(), 0xFF193323.toInt(), 8)
+            })
+            lr.addView(View(this), LinearLayout.LayoutParams(0, 1, 1f))
             lr.addView(Button(this).apply {
                 text = "Undo"
                 isAllCaps = false
-                textSize = 15f
+                textSize = 14f
                 setTextColor(D_MINT)
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = null
                 setOnClickListener { tookWhat = null; saveRec(""); refresh() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
-            box.addView(lr, matchW().apply { topMargin = dp(8) })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(40)))
+            box.addView(lr, matchW().apply { topMargin = dp(12) })
+            box.addView(Button(this).apply {
+                text = "MARK AS COMPLETED"
+                isAllCaps = false
+                textSize = 14f
+                setTextColor(0xFF062014.toInt())
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF38C77F.toInt(), 0xFF66E5A0.toInt())).apply { cornerRadius = dp(12).toFloat() }
+                setOnClickListener { saveRec("T"); clearScan("Order completed. Ready for the next scan.") }
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(4) })
         } else {
             val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             fr.addView(Button(this).apply {
@@ -1025,6 +1041,19 @@ class OverlayService : Service() {
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
             box.addView(fr, matchW().apply { topMargin = dp(15) })
         }
+        box.addView(Button(this).apply {
+            text = "OPEN DASHBOARD ↗"
+            isAllCaps = false
+            textSize = 13f
+            setTextColor(P_MINT)
+            setTypeface(typeface, Typeface.BOLD)
+            stateListAnimator = null
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0xFF10291C.toInt()); setStroke(dp(1), 0xFF3E9865.toInt()) }
+            setOnClickListener {
+                closeCard()
+                startActivity(Intent(this@OverlayService, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT))
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(44)).apply { topMargin = dp(8) })
         val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         fun link(t: String, f: () -> Unit) = Button(this).apply {
             text = t
