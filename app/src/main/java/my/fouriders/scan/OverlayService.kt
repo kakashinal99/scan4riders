@@ -836,7 +836,19 @@ class OverlayService : Service() {
         val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val hl = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         hl.addView(tv("BATCH ORDER · $pickups PICKUP${if (pickups == 1) "" else "S"}", 10f, P_MUT, true).apply { letterSpacing = 0.12f })
-        hl.addView(tv("RM ${f2(v.fare)}", 29f, P_TEXT, true).apply { setPadding(0, dp(4), 0, 0) })
+        if (v.rpk != null) {
+            val big = android.text.SpannableStringBuilder("RM${f2(v.rpk)}")
+            val n = big.length
+            big.append(" /km")
+            big.setSpan(android.text.style.RelativeSizeSpan(0.45f), n, big.length, 0)
+            big.setSpan(android.text.style.ForegroundColorSpan(P_MUT), n, big.length, 0)
+            hl.addView(TextView(this).apply {
+                text = big; textSize = 29f; setTextColor(vc); setTypeface(typeface, Typeface.BOLD)
+                setPadding(0, dp(4), 0, 0)
+            })
+        } else {
+            hl.addView(tv("Set km", 22f, P_MUT, true).apply { setPadding(0, dp(4), 0, 0) })
+        }
         head.addView(hl, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         val tagTxt = when (v.word) { "ACCEPT" -> "GOOD VALUE"; "CONSIDER" -> "FAIR"; "REJECT" -> "LOW VALUE"; else -> "SET KM" }
         val tagFg = when (v.word) { "ACCEPT" -> P_MINT; "CONSIDER" -> P_AMBER; "REJECT" -> D_RED; else -> P_MUT }
@@ -897,8 +909,8 @@ class OverlayService : Service() {
         box.addView(View(this).apply { setBackgroundColor(P_LINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         val mrow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(12), 0, 0) }
         listOf("↗ ${String.format(Locale.US, "%.1f", v.km)} km total", "◷ $mins min est.",
-            if (v.rpk != null) "RM ${f2(v.rpk)}/km" else "RM/km -").forEachIndexed { i, t ->
-            mrow.addView(tv(t, 10f, if (i == 2) vc else P_MUT, i == 2).apply { setPadding(0, 0, dp(14), 0) })
+            "RM ${f2(v.fare)} fare").forEachIndexed { i, t ->
+            mrow.addView(tv(t, 10f, if (i == 2) P_TEXT else P_MUT, i == 2).apply { setPadding(0, 0, dp(14), 0) })
         }
         box.addView(mrow, matchW())
 
