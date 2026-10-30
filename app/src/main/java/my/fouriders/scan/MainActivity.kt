@@ -48,6 +48,12 @@ class MainActivity : ComponentActivity() {
         private val BAD = Color.parseColor("#FF7D83")
         private val WARNT = Color.parseColor("#352A16")
         private val GREYBAR = Color.parseColor("#3B5145")
+        // New Today design (prototype)
+        private val PBORD = Color.parseColor("#39734F")
+        private val PPILL = Color.parseColor("#11251A")
+        private val PLINE = Color.parseColor("#29372F")
+        private val PMUT = Color.parseColor("#91A098")
+        private val PTEXT = Color.parseColor("#F3F7F4")
     }
 
     private var tab = 0
@@ -79,8 +85,8 @@ class MainActivity : ComponentActivity() {
         }
         content = ScrollView(this)
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
-        navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        root.addView(View(this).apply { setBackgroundColor(PLINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+        navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setBackgroundColor(Color.parseColor("#0B100E")) }
         root.addView(navRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
         setContentView(root)
         render()
@@ -89,15 +95,15 @@ class MainActivity : ComponentActivity() {
     private fun render() {
         val y = content.scrollY
         navRow.removeAllViews()
-        listOf("Today", "Orders", "History", "Settings").forEachIndexed { i, name ->
+        listOf("Today" to "⌂", "Orders" to "▣", "History" to "◷", "Settings" to "⚙").forEachIndexed { i, (name, icon) ->
             val on = i == tab
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
                 setOnClickListener { tab = i; content.scrollTo(0, 0); render() }
             }
-            cell.addView(View(this).apply { setBackgroundColor(if (on) BLUE else Color.TRANSPARENT) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
-            cell.addView(tv(name, 13.5f, if (on) BLUE else MUT, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { }, )
+            cell.addView(tv(icon, 18f, if (on) OK else PMUT, false).apply { gravity = Gravity.CENTER })
+            cell.addView(tv(name, 10f, if (on) OK else PMUT, false).apply { gravity = Gravity.CENTER })
             navRow.addView(cell, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f))
         }
         content.removeAllViews()
@@ -193,48 +199,181 @@ class MainActivity : ComponentActivity() {
         p.addView(composeHeader, mt(4))
     }
 
+    private fun eyebrow(t: String) = tv(t.uppercase(Locale.US), 10f, PMUT, true).apply { letterSpacing = 0.12f }
+
+    private fun pill(t: String, fg: Int = OK, bg: Int = PPILL, stroke: Int = PBORD, onTap: (() -> Unit)? = null) =
+        tv(t, 10f, fg, true).apply {
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(bg); setStroke(dp(1), stroke) }
+            if (onTap != null) setOnClickListener { onTap() }
+        }
+
+    private fun pSection(title: String, link: String, onLink: () -> Unit): View {
+        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(22), 0, dp(12)) }
+        r.addView(tv(title, 14f, PTEXT, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        r.addView(tv(link, 10f, OK, true).apply { setOnClickListener { onLink() } })
+        return r
+    }
+
     private fun today(p: LinearLayout) {
         val all = Store.all(this)
         val start = dayStart(System.currentTimeMillis()).timeInMillis
         val rows = all.filter { it.id >= start }
         val a = agg(rows)
-        val fuel = a.km * cfg().getFloat("fuel", 0.14f)
         val goal = cfg().getFloat("goal", 200f).toDouble()
-        val net = a.fare - fuel
-        header(p, "Today", SimpleDateFormat("EEE d MMM", Locale.US).format(Date()))
-        p.addView(lab("Earned"), mt(14))
-        p.addView(big("RM " + f2(a.fare), "of RM ${goal.toInt()} target"))
-        val pct = if (goal > 0) (a.fare / goal * 100).coerceIn(0.0, 100.0) else 0.0
-        p.addView(progress(pct), mt(8))
-        p.addView(split(f1(pct).substringBefore(".") + "% of target", "RM " + f2(max0(goal - a.fare)) + " to go"))
-        p.addView(kp(listOf("Orders" to "${a.n}", "Distance" to f1(a.km) + " km", "RM / km" to (if (a.km > 0) f2(a.fare / a.km) else "-"))), mt(14))
-        val hrs = if (rows.isEmpty()) 0.0 else (rows.maxOf { it.id } - rows.minOf { it.id }) / 3600000.0
-        p.addView(kp(listOf("Fuel (est.)" to f2(fuel), "After fuel" to f2(net), "RM / hour" to (if (hrs >= 0.5) f2(net / hrs) else "-"))), mt(0))
+        val now = Calendar.getInstance()
+        val hr = now.get(Calendar.HOUR_OF_DAY)
 
-        if (a.n > 0) {
-            val byH = DoubleArray(24)
-            rows.filter { it.decision == "T" }.forEach { byH[Calendar.getInstance().apply { timeInMillis = it.id }.get(Calendar.HOUR_OF_DAY)] += it.fare }
-            val first = byH.indexOfFirst { it > 0 }
-            val last = byH.indexOfLast { it > 0 }
-            val lo = minOf(first, last - 5).coerceAtLeast(0)
-            val hi = maxOf(last, lo + 5).coerceAtMost(23)
-            val labels = (lo..hi).map { val h = it % 12; (if (h == 0) 12 else h).toString() }
-            p.addView(sec("Earned by hour", "Best: " + hourName(byH.indices.maxByOrNull { byH[it] } ?: 0)))
-            p.addView(Bars(this, (lo..hi).map { byH[it] }, labels), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(96)))
+        // top: brand + scanner state
+        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val bl = col()
+        bl.addView(TextView(this).apply {
+            val sb = android.text.SpannableStringBuilder("4Riders")
+            sb.setSpan(android.text.style.ForegroundColorSpan(OK), 1, 2, 0)
+            text = sb; textSize = 25f; setTextColor(PTEXT); setTypeface(typeface, Typeface.BOLD)
+        })
+        bl.addView(tv("RIDER COMPANION", 12f, PMUT))
+        top.addView(bl, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val stateTxt = when { !OverlayService.running -> "● OFF"; OverlayService.hidden -> "● HIDDEN"; else -> "● READY" }
+        top.addView(pill(stateTxt))
+        p.addView(top)
+
+        // scan button
+        val running = OverlayService.running
+        val scanTxt = when { !running -> "◉ START SCAN"; OverlayService.hidden -> "◉ SHOW CHIP"; else -> "◉ HIDE CHIP" }
+        val scanRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.END }
+        scanRow.addView(pill(scanTxt) {
+            when {
+                !running -> startFlow()
+                OverlayService.hidden -> { startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_SHOW)); OverlayService.hidden = false; render() }
+                else -> { startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_HIDE)); OverlayService.hidden = true; render() }
+            }
+        })
+        p.addView(scanRow, mt(10))
+
+        p.addView(eyebrow(SimpleDateFormat("EEEE · d MMMM", Locale.US).format(Date())), mt(16))
+        p.addView(tv(if (hr < 12) "Good morning." else if (hr < 18) "Good afternoon." else "Good evening.", 27f, PTEXT, true), mt(6))
+        p.addView(tv("Your shift at a glance.", 12f, PMUT))
+
+        // target
+        val pct = if (goal > 0) (a.fare / goal * 100).coerceIn(0.0, 100.0) else 0.0
+        p.addView(View(this).apply { setBackgroundColor(PLINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(22) })
+        val tg = col().apply { setPadding(0, dp(18), 0, dp(18)) }
+        tg.addView(eyebrow("Today's target"))
+        tg.addView(TextView(this).apply {
+            val v = "RM " + f2(a.fare)
+            val sb = android.text.SpannableStringBuilder(v)
+            val n = sb.length
+            sb.append(" / RM " + f2(goal))
+            sb.setSpan(android.text.style.RelativeSizeSpan(0.36f), n, sb.length, 0)
+            sb.setSpan(android.text.style.ForegroundColorSpan(PMUT), n, sb.length, 0)
+            text = sb; textSize = 36f; setTextColor(PTEXT); setTypeface(typeface, Typeface.BOLD)
+            setPadding(0, dp(5), 0, dp(5))
+        })
+        val track = FrameLayout(this)
+        track.background = GradientDrawable().apply { cornerRadius = dp(20).toFloat(); setColor(PLINE) }
+        track.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.parseColor("#53D18D"), Color.parseColor("#B9F26F"))).apply { cornerRadius = dp(20).toFloat() }
+        }, FrameLayout.LayoutParams(0, dp(7)))
+        track.post {
+            (track.getChildAt(0).layoutParams as FrameLayout.LayoutParams).width = (track.width * pct / 100.0).toInt()
+            track.getChildAt(0).requestLayout()
         }
-        if (rows.isNotEmpty()) {
-            val t = a.n
-            val s = rows.size - t
-            p.addView(sec("Your decisions", "${rows.size} scanned"))
-            p.addView(splitBar(t, s))
-            p.addView(tv("Taken $t   ·   Skipped/undecided $s", 13f, MUT, true), mt(6))
-            p.addView(sec("Busiest areas today", ""))
-            areaList(p, areas(rows).take(4))
-            p.addView(sec("Latest", ""))
-            rows.sortedByDescending { it.id }.take(4).forEach { orderRow(p, it) }
+        tg.addView(track, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(7)).apply { topMargin = dp(13); bottomMargin = dp(8) })
+        val bt = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        bt.addView(tv("${pct.toInt()}% completed", 11f, PMUT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        bt.addView(tv("RM " + f2(max0(goal - a.fare)) + " remaining", 11f, PMUT))
+        tg.addView(bt)
+        p.addView(tg)
+        p.addView(View(this).apply { setBackgroundColor(PLINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+
+        // stats
+        val st = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        listOf("ORDERS" to "${a.n}", "DISTANCE" to f1(a.km) + " km", "AVG / ORDER" to (if (a.n > 0) "RM " + f2(a.fare / a.n) else "-")).forEachIndexed { i, (k, v) ->
+            val c = col().apply { setPadding(if (i == 0) 0 else dp(9), 0, dp(9), 0) }
+            c.addView(tv(k, 15f, PMUT))
+            c.addView(tv(v, 19f, PTEXT, true).apply { setPadding(0, dp(4), 0, 0) })
+            st.addView(c, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            if (i < 2) st.addView(View(this).apply { setBackgroundColor(PLINE) }, LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT))
+        }
+        p.addView(st, mt(22))
+
+        // latest order
+        p.addView(pSection("Latest order detected", "VIEW ALL") { tab = 1; render() })
+        val o = rows.maxByOrNull { it.id }
+        if (o == null) {
+            p.addView(tv("No orders scanned yet today. Open Grab, tap the chip, then Take or Skip.", 14f, PMUT))
         } else {
-            p.addView(tv("No orders scanned yet today. Open Grab, tap the chip, then Take or Skip.", 14f, MUT), mt(18))
+            val card = col().apply {
+                setPadding(dp(16), dp(16), dp(16), dp(16))
+                background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#14211A"), Color.parseColor("#101714"))).apply {
+                    cornerRadius = dp(18).toFloat(); setStroke(dp(1), Color.parseColor("#34483B"))
+                }
+            }
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            val hl = col()
+            hl.addView(eyebrow("Scanned order · ${o.area}"))
+            hl.addView(tv("RM " + f2(o.fare), 29f, PTEXT, true).apply { setPadding(0, dp(4), 0, 0) })
+            head.addView(hl, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            head.addView(when (o.word) {
+                "ACCEPT" -> pill("GOOD VALUE")
+                "CONSIDER" -> pill("FAIR", MID, Color.parseColor("#3B2D16"), Color.parseColor("#66512A"))
+                else -> pill("LOW VALUE", BAD, Color.parseColor("#3A1A1D"), Color.parseColor("#6B2E33"))
+            })
+            card.addView(head)
+
+            val route = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            route.addView(View(this).apply { setBackgroundColor(Color.parseColor("#597765")) }, LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT))
+            val sc = col().apply { setPadding(dp(15), 0, 0, 0) }
+            sc.addView(tv("Pickup · ${o.area}", 12f, PTEXT, true))
+            sc.addView(tv("${f1(o.km)} km total route", 11f, PMUT).apply { setPadding(0, dp(2), 0, 0) })
+            route.addView(sc)
+            card.addView(route, mt(16))
+
+            val mins = Math.round(o.km / 24.0 * 60).toInt().coerceAtLeast(1)
+            card.addView(View(this).apply { setBackgroundColor(PLINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(16) })
+            val mt2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(12), 0, 0) }
+            listOf("↗ ${f1(o.km)} km total", "◷ $mins min est.", "RM ${f2(o.rpk)}/km").forEach {
+                mt2.addView(tv(it, 10f, PMUT).apply { setPadding(0, 0, dp(14), 0) })
+            }
+            card.addView(mt2)
+
+            if (o.decision == "") {
+                val ac = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                fun act(t: String, fg: Int, bg: android.graphics.drawable.Drawable, dec: String, w: Float) = Button(this).apply {
+                    text = t; isAllCaps = false; textSize = 14f; setTextColor(fg); setTypeface(typeface, Typeface.BOLD); stateListAnimator = null
+                    background = bg
+                    setOnClickListener { Store.upsert(this@MainActivity, o.copy(decision = dec)); render() }
+                }
+                ac.addView(act("SKIP", Color.parseColor("#E0E8E2"), GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(Color.parseColor("#28322D")) }, "S", 1f),
+                    LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(5) })
+                ac.addView(act("AMBIL ORDER", Color.parseColor("#07110B"),
+                    GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(Color.parseColor("#65DC9A"), Color.parseColor("#B8EF70"))).apply { cornerRadius = dp(12).toFloat() }, "T", 1f),
+                    LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginStart = dp(5) })
+                card.addView(ac, mt(15))
+            } else {
+                val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                lr.addView(tv("Logged as " + (if (o.decision == "T") "Taken" else "Skipped"), 13f, PTEXT, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                lr.addView(tv("UNDO", 11f, OK, true).apply {
+                    setPadding(dp(8), dp(12), 0, dp(12))
+                    setOnClickListener { Store.upsert(this@MainActivity, o.copy(decision = "")); render() }
+                })
+                card.addView(lr, mt(8))
+            }
+            p.addView(card)
         }
+
+        // shift snapshot
+        p.addView(pSection("Shift snapshot", "DETAILS") { tab = 2; render() })
+        fun snap(l: String, v: String, top: Int) {
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            r.addView(tv(l, 11f, PMUT), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            r.addView(tv(v, 15f, PTEXT, true))
+            p.addView(r, mt(top))
+        }
+        snap("Gross earnings", "RM " + f2(a.fare), 0)
+        val left = max0(goal - a.fare)
+        snap("Orders to target (est.)", if (a.n == 0) "-" else if (left <= 0) "Done" else "${Math.ceil(left / (a.fare / a.n)).toInt()} more", 10)
     }
 
     private fun max0(x: Double) = if (x < 0) 0.0 else x
