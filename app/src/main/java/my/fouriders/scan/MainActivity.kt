@@ -1106,8 +1106,11 @@ class MainActivity : ComponentActivity() {
         text = t
         textSize = size
         setTextColor(color)
-        if (bold) setTypeface(typeface, Typeface.BOLD)
+        typeface = if (bold) interBold else interReg
     }
+
+    private val interReg by lazy { resources.getFont(R.font.inter_regular) }
+    private val interBold by lazy { resources.getFont(R.font.inter_bold) }
 
     private fun mono(t: String, size: Float, color: Int = INK) = TextView(this).apply {
         text = t
