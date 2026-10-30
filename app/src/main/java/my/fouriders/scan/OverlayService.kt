@@ -701,7 +701,8 @@ class OverlayService : Service() {
         val stop = Session.stops.values.firstOrNull { it.collect } ?: Session.stops.values.firstOrNull()
         val area = Store.areaOf(stop?.address.orEmpty())
         val keep = Store.get(this, id)?.decision.orEmpty()
-        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
+        val stopsStr = Session.stops.values.joinToString(";") { (if (it.collect) "P:" else "D:") + it.name.replace(";", " ").replace(":", " ") }
+        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep, stopsStr))
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
@@ -788,11 +789,11 @@ class OverlayService : Service() {
 
     private fun dLab(t: String, color: Int = D_MUTED) = tv(t.uppercase(Locale.US), 10.5f, color, true).apply { letterSpacing = 0.1f }
 
-    private val P_MINT = 0xFF69E6A2.toInt()
-    private val P_AMBER = 0xFFF0C76A.toInt()
-    private val P_MUT = 0xFF91A098.toInt()
-    private val P_TEXT = 0xFFF3F7F4.toInt()
-    private val P_LINE = 0xFF29372F.toInt()
+    private val P_MINT = 0xFF53E09A.toInt()
+    private val P_AMBER = 0xFFF3C85C.toInt()
+    private val P_MUT = 0xFF91A39A.toInt()
+    private val P_TEXT = 0xFFF1F7F3.toInt()
+    private val P_LINE = 0xFF26332E.toInt()
 
     private fun smallStep(label: String, plus: Boolean, onTap: () -> Unit, onLong: () -> Unit): Button = Button(this).apply {
         text = label
@@ -826,9 +827,9 @@ class OverlayService : Service() {
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(8))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF14211A.toInt(), 0xFF101714.toInt())).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF17221E.toInt(), 0xFF101613.toInt())).apply {
                 cornerRadius = dp(18).toFloat()
-                setStroke(dp(1), 0xFF34483B.toInt())
+                setStroke(dp(1), 0xFF26332E.toInt())
             }
         }
 
@@ -850,13 +851,14 @@ class OverlayService : Service() {
             hl.addView(tv("Set km", 22f, P_MUT, true).apply { setPadding(0, dp(4), 0, 0) })
         }
         head.addView(hl, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val tagTxt = when (v.word) { "ACCEPT" -> "GOOD VALUE"; "CONSIDER" -> "FAIR"; "REJECT" -> "LOW VALUE"; else -> "SET KM" }
+        val tagTxt = when (v.word) { "ACCEPT" -> "WORTH TAKING"; "CONSIDER" -> "BORDERLINE"; "REJECT" -> "LOW VALUE"; else -> "SET KM" }
         val tagFg = when (v.word) { "ACCEPT" -> P_MINT; "CONSIDER" -> P_AMBER; "REJECT" -> D_RED; else -> P_MUT }
-        val tagBg = when (v.word) { "ACCEPT" -> 0xFF11251A.toInt(); "CONSIDER" -> 0xFF3B2D16.toInt(); "REJECT" -> 0xFF3A1A1D.toInt(); else -> 0xFF26332D.toInt() }
-        val tagLine = when (v.word) { "ACCEPT" -> 0xFF39734F.toInt(); "CONSIDER" -> 0xFF66512A.toInt(); "REJECT" -> 0xFF6B2E33.toInt(); else -> 0xFF3B5145.toInt() }
+        val tagBg = when (v.word) { "ACCEPT" -> 0xFF143324.toInt(); "CONSIDER" -> 0xFF3B2D16.toInt(); "REJECT" -> 0xFF3A1A1D.toInt(); else -> 0xFF26332D.toInt() }
+        val tagLine = when (v.word) { "ACCEPT" -> 0xFF285D40.toInt(); "CONSIDER" -> 0xFF66512A.toInt(); "REJECT" -> 0xFF6B2E33.toInt(); else -> 0xFF3B5145.toInt() }
         head.addView(tv(tagTxt, 10f, tagFg, true).apply {
-            setPadding(dp(10), dp(7), dp(10), dp(7))
-            background = GradientDrawable().apply { cornerRadius = dp(30).toFloat(); setColor(tagBg); setStroke(dp(1), tagLine) }
+            setPadding(dp(8), dp(5), dp(8), dp(5))
+            letterSpacing = 0.08f
+            background = GradientDrawable().apply { cornerRadius = dp(8).toFloat(); setColor(tagBg); setStroke(dp(1), tagLine) }
         })
         box.addView(head, matchW())
 
@@ -1000,20 +1002,20 @@ class OverlayService : Service() {
                 text = "SKIP"
                 isAllCaps = false
                 textSize = 14f
-                setTextColor(0xFFE0E8E2.toInt())
+                setTextColor(0xFFD9E3DD.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
-                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0xFF28322D.toInt()) }
+                background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0xFF1A2420.toInt()); setStroke(dp(1), 0xFF34433B.toInt()) }
                 setOnClickListener { saveRec("S"); clearScan("Skipped, scanner cleared") }
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
             fr.addView(Button(this).apply {
                 text = "AMBIL ORDER"
                 isAllCaps = false
                 textSize = 14f
-                setTextColor(0xFF07110B.toInt())
+                setTextColor(0xFF062014.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
-                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF65DC9A.toInt(), 0xFFB8EF70.toInt())).apply { cornerRadius = dp(12).toFloat() }
+                background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF38C77F.toInt(), 0xFF66E5A0.toInt())).apply { cornerRadius = dp(12).toFloat() }
                 setOnClickListener { tookWhat = "Taken"; saveRec("T"); refresh() }
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
             box.addView(fr, matchW().apply { topMargin = dp(15) })

@@ -6,7 +6,8 @@ import java.util.Locale
 /** One scanned order. decision: "T" taken, "S" skipped, "" not decided. */
 data class Rec(
     val id: Long, val word: String, val rpk: Double, val fare: Double, val km: Double,
-    val area: String, val decision: String
+    val area: String, val decision: String,
+    val stops: String = ""   // "P:name;D:name", P = pickup, D = drop-off
 )
 
 /** Local history of scanned orders, kept on this phone only. */
@@ -19,7 +20,7 @@ object Store {
         prefs(ctx).getString(KEY, "").orEmpty().split("\n").mapNotNull { line ->
             val p = line.split("|")
             if (p.size < 7) null else try {
-                Rec(p[0].toLong(), p[1], p[2].toDouble(), p[3].toDouble(), p[4].toDouble(), p[6], p[5])
+                Rec(p[0].toLong(), p[1], p[2].toDouble(), p[3].toDouble(), p[4].toDouble(), p[6], p[5], p.getOrNull(7).orEmpty())
             } catch (e: Exception) {
                 null
             }
@@ -27,7 +28,7 @@ object Store {
 
     private fun save(ctx: Context, rows: List<Rec>) {
         val s = rows.takeLast(3000).joinToString("\n") {
-            String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\n", " "))
+            String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\n", " "), it.stops.replace("|", " ").replace("\n", " "))
         }
         prefs(ctx).edit().putString(KEY, s).apply()
     }
