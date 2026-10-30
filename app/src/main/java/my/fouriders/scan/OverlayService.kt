@@ -789,11 +789,11 @@ class OverlayService : Service() {
 
     private fun dLab(t: String, color: Int = D_MUTED) = tv(t.uppercase(Locale.US), 10.5f, color, true).apply { letterSpacing = 0.1f }
 
-    private val P_MINT = 0xFF53E09A.toInt()
-    private val P_AMBER = 0xFFF3C85C.toInt()
+    private val P_MINT = 0xFF62E5A0.toInt()
+    private val P_AMBER = 0xFFF4CC68.toInt()
     private val P_MUT = 0xFF91A39A.toInt()
     private val P_TEXT = 0xFFF1F7F3.toInt()
-    private val P_LINE = 0xFF26332E.toInt()
+    private val P_LINE = 0xFF293831.toInt()
 
     private fun smallStep(label: String, plus: Boolean, onTap: () -> Unit, onLong: () -> Unit): Button = Button(this).apply {
         text = label
@@ -829,7 +829,7 @@ class OverlayService : Service() {
             setPadding(dp(16), dp(16), dp(16), dp(8))
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF17221E.toInt(), 0xFF101613.toInt())).apply {
                 cornerRadius = dp(18).toFloat()
-                setStroke(dp(1), 0xFF26332E.toInt())
+                setStroke(dp(1), 0xFF293831.toInt())
             }
         }
 
@@ -910,9 +910,14 @@ class OverlayService : Service() {
         // Metrics
         box.addView(View(this).apply { setBackgroundColor(P_LINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         val mrow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(12), 0, 0) }
-        listOf("↗ ${String.format(Locale.US, "%.1f", v.km)} km total", "◷ $mins min est.",
-            "RM ${f2(v.fare)} fare").forEachIndexed { i, t ->
-            mrow.addView(tv(t, 10f, if (i == 2) P_TEXT else P_MUT, i == 2).apply { setPadding(0, 0, dp(14), 0) })
+        val showEta = c.getBoolean("showeta", true)
+        val showRpk = c.getBoolean("showrpk", true)
+        val mItems = ArrayList<Pair<String, Boolean>>()
+        mItems.add("↗ ${String.format(Locale.US, "%.1f", v.km)} km total" to false)
+        if (showEta) mItems.add("◷ $mins min est." to false)
+        if (showRpk) mItems.add("RM ${f2(v.fare)} fare" to true)
+        mItems.forEach { (t, b) ->
+            mrow.addView(tv(t, 10f, if (b) P_TEXT else P_MUT, b).apply { setPadding(0, 0, dp(14), 0) })
         }
         box.addView(mrow, matchW())
 
@@ -999,24 +1004,24 @@ class OverlayService : Service() {
         } else {
             val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
             fr.addView(Button(this).apply {
-                text = "SKIP"
+                text = "REJECT"
                 isAllCaps = false
                 textSize = 14f
                 setTextColor(0xFFD9E3DD.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(0xFF1A2420.toInt()); setStroke(dp(1), 0xFF34433B.toInt()) }
-                setOnClickListener { saveRec("S"); clearScan("Skipped, scanner cleared") }
+                setOnClickListener { saveRec("S"); clearScan("Rejected, scanner cleared") }
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginEnd = dp(5) })
             fr.addView(Button(this).apply {
-                text = "AMBIL ORDER"
+                text = "ACCEPT ORDER"
                 isAllCaps = false
                 textSize = 14f
                 setTextColor(0xFF062014.toInt())
                 setTypeface(typeface, Typeface.BOLD)
                 stateListAnimator = null
                 background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT, intArrayOf(0xFF38C77F.toInt(), 0xFF66E5A0.toInt())).apply { cornerRadius = dp(12).toFloat() }
-                setOnClickListener { tookWhat = "Taken"; saveRec("T"); refresh() }
+                setOnClickListener { tookWhat = "Accepted"; saveRec("A"); refresh() }
             }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(5) })
             box.addView(fr, matchW().apply { topMargin = dp(15) })
         }
