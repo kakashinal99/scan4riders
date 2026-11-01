@@ -90,6 +90,12 @@ interface TrackingDao {
     @Query("SELECT * FROM tracked_orders WHERE orderId = :id LIMIT 1")
     suspend fun order(id: Long): TrackedOrderEntity?
 
+    @Query("DELETE FROM tracked_orders WHERE orderId = :id")
+    suspend fun deleteOrder(id: Long)
+
+    @Query("DELETE FROM tracked_orders")
+    suspend fun clearOrders()
+
     @Insert
     suspend fun addEvent(event: OrderEventEntity)
 
