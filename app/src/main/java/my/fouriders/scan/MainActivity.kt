@@ -554,7 +554,8 @@ class MainActivity : ComponentActivity() {
                 lifecycleScope.launch {
                     try {
                         TrackingController.stop(this@MainActivity)
-                        toast("Rider session ended")
+                        startService(Intent(this@MainActivity, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
+                        toast("Rider session ended · scanner stopped")
                         render()
                     } catch (e: Exception) {
                         toast("Could not stop rider session")
@@ -578,6 +579,7 @@ class MainActivity : ComponentActivity() {
                 TrackingController.start(this@MainActivity)
                 toast("Rider session ON · GPS tracking started")
                 render()
+                if (!OverlayService.running) startFlow()
             } catch (e: Exception) {
                 toast("Could not start GPS tracking. Check location permission.")
             }
