@@ -821,7 +821,8 @@ class MainActivity : ComponentActivity() {
         }
 
         val shown = if (hview == 0) rows.take(4) else rows
-        p.addView(sectionHead("Order history", pillT(if (hview == 0) "${minOf(4, rows.size)} RECENT RECORDS" else "${rows.size} TOTAL RECORDS")))
+        val historyCount = rows.sumOf { if (isCounted(it)) deliveryCount(it) else 1 }
+        p.addView(sectionHead("Order history", pillT(if (hview == 0) "${minOf(4, historyCount)} RECENT ORDERS" else "${historyCount} TOTAL ORDERS")))
         val vs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("RECENT", "ALL HISTORY ${rows.size}").forEachIndexed { i, s ->
             val on = i == hview
@@ -920,7 +921,8 @@ class MainActivity : ComponentActivity() {
             r.addView(tv(String.format(Locale.US, "%02d", i + 1), 10f, OK, true).apply { gravity = Gravity.CENTER; background = gd(Color.parseColor("#173323"), 8) }, LinearLayout.LayoutParams(dp(24), dp(24)))
             val l = col().apply { setPadding(dp(9), 0, 0, 0) }
             l.addView(tv(name, 12f, INK, true))
-            l.addView(tv("${list.size} order${if (list.size == 1) "" else "s"} · ${f1(list.sumOf { it.km })} km", 9f, MUT).apply { setPadding(0, dp(3), 0, 0) })
+            val deliveryTotal = list.sumOf { deliveryCount(it) }
+            l.addView(tv("${deliveryTotal} order${if (deliveryTotal == 1) "" else "s"} · ${f1(list.sumOf { it.km })} km", 9f, MUT).apply { setPadding(0, dp(3), 0, 0) })
             r.addView(l, LinearLayout.LayoutParams(0, WRAP, 1f))
             val sc = col().apply { gravity = Gravity.END }
             sc.addView(tv("RM" + f2(rate), 12f, OK, true).apply { gravity = Gravity.END })
