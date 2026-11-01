@@ -124,7 +124,7 @@ interface TrackingDao {
     suspend fun interruptOpenTrips(sessionId: String)
 
     @Query("UPDATE rider_sessions SET status = 'INTERRUPTED', endedAt = :endedAt WHERE status = 'ACTIVE'")
-    suspend fun interruptOpenSessions()
+    suspend fun interruptOpenSessions(endedAt: Long)
 }
 
 @Database(
