@@ -102,6 +102,9 @@ interface TrackingDao {
     @Query("SELECT * FROM location_samples WHERE sessionId = :sessionId ORDER BY recordedAt")
     suspend fun locations(sessionId: String): List<LocationSampleEntity>
 
+    @Query("SELECT * FROM location_samples WHERE sessionId = :sessionId AND recordedAt BETWEEN :from AND :to ORDER BY recordedAt")
+    suspend fun locationsBetween(sessionId: String, from: Long, to: Long): List<LocationSampleEntity>
+
     @Insert
     suspend fun addTrip(trip: TripSegmentEntity): Long
 
