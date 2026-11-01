@@ -146,9 +146,16 @@ class MainActivity : ComponentActivity() {
         set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
     }
 
+    // A saved Rec represents one Grab offer/batch. Completed delivery count is
+    // the number of drop-off stops; fare and trip distance remain batch totals.
+    private fun deliveryCount(o: Rec): Int {
+        val drops = parseStops(o.stops).count { !it.collect }
+        return if (drops > 0) drops else 1
+    }
+
     private fun agg(rows: List<Rec>): Agg {
         val t = rows.filter { it.decision == "T" || it.decision == "A" }
-        return Agg(t.size, t.sumOf { it.fare }, t.sumOf { it.km })
+        return Agg(t.sumOf { deliveryCount(it) }, t.sumOf { it.fare }, t.sumOf { it.km })
     }
 
     private fun periods(kind: Int): List<Period> {
@@ -659,29 +666,33 @@ class MainActivity : ComponentActivity() {
         else "$head · ${o.area} · ${f1(o.km)} km"
     }
 
-    private fun activityTitle(o: Rec): String {
-        if (o.decision == "S") return "Skipped order"
-        val st = parseStops(o.stops)
-        val pk = st.count { it.collect }
-        return if (pk > 1) "Batch · $pk pickups / ${st.size - pk} drops" else if (o.decision == "") "Pending order" else "Single delivery"
-    }
+    private fun activityRows(o: Rec): List<View> {
+        val stops = parseStops(o.stops)
+        val drops = stops.filter { !it.collect }
+        // Rejected/pending offers and legacy records without parsed drop-offs
+        // remain a single offer row; completed batch history expands per drop-off.
+        val labels = if (isCounted(o) && drops.isNotEmpty()) drops.map { it.name }
+            else listOf(if (o.decision == "S") "Skipped offer" else if (o.decision == "") "Pending offer" else o.area)
 
-    private fun activityRow(o: Rec): View {
-        val w = col()
-        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(14), 0, dp(14)) }
-        val l = col()
-        l.addView(tv(activityTitle(o), 12f, INK, true))
-        l.addView(mutedT(detailText(o)))
-        r.addView(l, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(10) })
-        when {
-            isCounted(o) -> r.addView(tv("+RM" + f2(o.fare), 12f, OK, true))
-            o.decision == "S" -> r.addView(tv("SKIPPED", 10f, BAD, true))
-            else -> r.addView(tv("PENDING", 10f, MUT, true))
+        return labels.mapIndexed { index, destination ->
+            val w = col()
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(13), 0, dp(13)) }
+            val l = col()
+            l.addView(tv(if (isCounted(o) && drops.isNotEmpty()) "Drop-off ${index + 1}" else if (o.decision == "S") "Skipped order" else if (o.decision == "") "Pending order" else "Completed order", 12f, INK, true))
+            l.addView(mutedT("${SimpleDateFormat("h:mm a", Locale.US).format(Date(o.id))} · $destination"))
+            r.addView(l, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(10) })
+            when {
+                isCounted(o) && (drops.isEmpty() || index == 0) ->
+                    r.addView(tv("+RM" + f2(o.fare) + if (drops.size > 1) " batch" else "", 11f, OK, true))
+                isCounted(o) -> r.addView(tv("IN BATCH", 9f, MUT, true))
+                o.decision == "S" -> r.addView(tv("SKIPPED", 10f, BAD, true))
+                else -> r.addView(tv("PENDING", 10f, MUT, true))
+            }
+            r.setOnClickListener { editOrder(o) }
+            w.addView(r)
+            w.addView(lineV(), LinearLayout.LayoutParams(MATCH, dp(1)))
+            w
         }
-        r.setOnClickListener { editOrder(o) }
-        w.addView(r)
-        w.addView(lineV(), LinearLayout.LayoutParams(MATCH, dp(1)))
-        return w
     }
 
     private class TrendBars(ctx: Context, val vals: List<Double>, val labels: List<String>) : View(ctx) {
@@ -747,7 +758,7 @@ class MainActivity : ComponentActivity() {
         val taken = rows.filter { isCounted(it) }
         val g = taken.sumOf { it.fare }
         val km = taken.sumOf { it.km }
-        val n = taken.size
+        val n = taken.sumOf { deliveryCount(it) }
         val goal = cfg().getFloat("goal", 150f).toDouble()
         val days = when (per) { 0 -> 1; 1 -> 7; else -> Calendar.getInstance().getActualMaximum(Calendar.DAY_OF_MONTH) }
         val target = goal * days
@@ -824,7 +835,7 @@ class MainActivity : ComponentActivity() {
         }
         p.addView(vs, mtb(0, 8))
         if (shown.isEmpty()) p.addView(emptyCard("No order records for this period yet."))
-        else shown.forEach { p.addView(activityRow(it)) }
+        else shown.forEach { rec -> activityRows(rec).forEach { p.addView(it) } }
         p.addView(noteT("Calculated from orders saved on this phone. Tap a record to edit or delete it. Online time is the span between your first and last order each day."), mtb(20, 0))
     }
 
