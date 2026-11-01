@@ -455,8 +455,8 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             val ac = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            ac.addView(btn("REJECT", false) { updateOrderDecision(o, "S"); grp = 3; toast("Offer rejected"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
-            ac.addView(btn("ACCEPT ORDER", true) { updateOrderDecision(o, "A"); grp = 1; toast("Accepted · In Progress"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
+            ac.addView(btn("REJECT", false) { updateOrderDecision(o, "S"); toast("Offer rejected · moved to History"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
+            ac.addView(btn("ACCEPT ORDER", true) { updateOrderDecision(o, "A"); toast("Accepted · In Progress"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
             card.addView(ac, mtb(14, 0))
         } else {
             val label = when (mode) { 1 -> "IN PROGRESS"; 2 -> "COMPLETED"; else -> "REJECTED" }
@@ -470,7 +470,7 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             if (mode == 1) card.addView(btn("MARK AS COMPLETED", true) {
-                updateOrderDecision(o, "T"); grp = 2; toast("Order completed"); render()
+                updateOrderDecision(o, "T"); toast("Order completed · moved to History"); render()
             }, mtb(12, 0))
             else card.addView(mutedT(if (mode == 2) "Delivery completed." else "Status recorded."), mtb(10, 0))
         }
@@ -538,7 +538,6 @@ class MainActivity : ComponentActivity() {
 
     // ---------- screens ----------
 
-    private var grp = 0
     private var hsub = 0
     private var hview = 0
     private var iper = 0
@@ -619,22 +618,20 @@ class MainActivity : ComponentActivity() {
             addView(track(pct))
         })
         p.addView(statsRow(listOf("${a.n}" to "ORDERS", f1(a.km) + " km" to "DISTANCE", (if (a.n > 0) m(a.fare / a.n) else "RM0.00") to "AVG / ORDER")))
-        val offers = rows.filter { it.decision == "" }
-        p.addView(sectionHead("Order management", pillT("${offers.size} NEW OFFER${if (offers.size == 1) "" else "S"}")))
-        p.addView(pills(listOf("New offers", "In progress", "Completed", "Rejected"), grp) { grp = it; render() })
-        when (grp) {
-            0 -> {
-                p.addView(sectionHead("Latest order", linkT("ALL ORDERS →") { tab = 1; hsub = 0; hview = 1; render() }))
-                val o = offers.firstOrNull()
-                p.addView(if (o != null) orderCard(o, 0) else emptyCard("No new offers right now."))
-            }
-            else -> {
-                val code = when (grp) { 1 -> "A"; 2 -> "T"; else -> "S" }
-                val list = rows.filter { it.decision == code }
-                if (list.isEmpty()) p.addView(emptyCard(when (grp) { 1 -> "No orders in progress yet."; 2 -> "No completed orders yet."; else -> "No rejected offers yet." }))
-                else list.forEach { p.addView(orderCard(it, grp)) }
-            }
+        // One live order capsule at a time: pending -> in progress -> History.
+        // Rejected and completed offers stay in History, not separate Home columns.
+        val activeOrder = rows.firstOrNull { it.decision == "A" }
+        val pendingOffer = rows.firstOrNull { it.decision == "" }
+        val liveOrder = activeOrder ?: pendingOffer
+        val liveStatus = when {
+            activeOrder != null -> "IN PROGRESS"
+            pendingOffer != null -> "NEW OFFER"
+            else -> "CLEAR"
         }
+        p.addView(sectionHead("Offers", pillT(liveStatus)))
+        p.addView(if (liveOrder != null) orderCard(liveOrder, if (activeOrder != null) 1 else 0)
+            else emptyCard("No active offer. Rejected and completed orders are in History."))
+        p.addView(linkT("VIEW HISTORY →") { tab = 1; hsub = 0; hview = 1; render() }, mtb(8, 0))
         p.addView(scanButton(), mtb(19, 0))
         p.addView(sectionHead("Shift snapshot", pillT("LIVE")))
         val cnt = rows.filter { isCounted(it) }
