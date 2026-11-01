@@ -549,7 +549,7 @@ class MainActivity : ComponentActivity() {
         labels.addView(tv(if (active) "RIDER SESSION ACTIVE" else "RIDER SESSION OFF", 11f, if (active) OK else MUT, true))
         labels.addView(tv(if (active) "GPS tracking is running" else "Turn ON to record your shift and GPS route", 10f, MUT))
         row.addView(labels, LinearLayout.LayoutParams(0, WRAP, 1f))
-        row.addView(btn(if (active) "TURN OFF" else "TURN ON", active, active) {
+        row.addView(btn(if (active) "TURN OFF" else "TURN ON", !active, active) {
             if (active) {
                 lifecycleScope.launch {
                     try {
