@@ -2,6 +2,8 @@ package my.fouriders.scan
 
 import android.Manifest
 import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
@@ -446,8 +448,8 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             val ac = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            ac.addView(btn("REJECT", false) { Store.upsert(this, o.copy(decision = "S")); grp = 3; toast("Offer rejected"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
-            ac.addView(btn("ACCEPT ORDER", true) { Store.upsert(this, o.copy(decision = "A")); grp = 1; toast("Accepted · In Progress"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
+            ac.addView(btn("REJECT", false) { updateOrderDecision(o, "S"); grp = 3; toast("Offer rejected"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
+            ac.addView(btn("ACCEPT ORDER", true) { updateOrderDecision(o, "A"); grp = 1; toast("Accepted · In Progress"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
             card.addView(ac, mtb(14, 0))
         } else {
             val label = when (mode) { 1 -> "IN PROGRESS"; 2 -> "COMPLETED"; else -> "REJECTED" }
@@ -461,7 +463,7 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             if (mode == 1) card.addView(btn("MARK AS COMPLETED", true) {
-                Store.upsert(this, o.copy(decision = "T")); grp = 2; toast("Order completed"); render()
+                updateOrderDecision(o, "T"); grp = 2; toast("Order completed"); render()
             }, mtb(12, 0))
             else card.addView(mutedT(if (mode == 2) "Delivery completed." else "Status recorded."), mtb(10, 0))
         }
@@ -535,6 +537,61 @@ class MainActivity : ComponentActivity() {
     private var iper = 0
     private var allAreas = false
 
+    private fun riderSessionControl(): View {
+        val active = TrackingController.isActive(this)
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = gd(Color.parseColor("#121D17"), 14, Color.parseColor("#2B4937"))
+        }
+        val labels = col()
+        labels.addView(tv(if (active) "RIDER SESSION ACTIVE" else "RIDER SESSION OFF", 11f, if (active) OK else MUT, true))
+        labels.addView(tv(if (active) "GPS tracking is running" else "Turn ON to record your shift and GPS route", 10f, MUT))
+        row.addView(labels, LinearLayout.LayoutParams(0, WRAP, 1f))
+        row.addView(btn(if (active) "TURN OFF" else "TURN ON", active, active) {
+            if (active) {
+                lifecycleScope.launch {
+                    try {
+                        TrackingController.stop(this@MainActivity)
+                        toast("Rider session ended")
+                        render()
+                    } catch (e: Exception) {
+                        toast("Could not stop rider session")
+                    }
+                }
+            } else if (!TrackingController.hasLocationPermission(this@MainActivity)) {
+                requestPermissions(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    201
+                )
+            } else {
+                startRiderSession()
+            }
+        }, LinearLayout.LayoutParams(WRAP, dp(42)))
+        return row.apply { layoutParams = mtb(0, 14) }
+    }
+
+    private fun startRiderSession() {
+        lifecycleScope.launch {
+            try {
+                TrackingController.start(this@MainActivity)
+                toast("Rider session ON · GPS tracking started")
+                render()
+            } catch (e: Exception) {
+                toast("Could not start GPS tracking. Check location permission.")
+            }
+        }
+    }
+
+    private fun updateOrderDecision(order: Rec, decision: String) {
+        Store.upsert(this, order.copy(decision = decision))
+        val event = when (decision) { "A" -> "ACCEPT"; "S" -> "REJECT"; "T" -> "COMPLETE"; else -> null }
+        if (event != null) lifecycleScope.launch {
+            try { OrderEventRecorder.record(this@MainActivity, order.id, event) } catch (_: Exception) { }
+        }
+    }
+
     private fun home(p: LinearLayout) {
         val all = Store.all(this)
         val start = dayStart(System.currentTimeMillis()).timeInMillis
@@ -545,6 +602,7 @@ class MainActivity : ComponentActivity() {
         val hr = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
         p.addView(h1(if (hr < 12) "Good morning, Rider." else if (hr < 18) "Good afternoon, Rider." else "Good evening, Rider."))
         p.addView(subT("Here’s your shift at a glance."), mtb(0, 20))
+        p.addView(riderSessionControl())
         p.addView(hero {
             addView(eyebrow("Today's gross target"))
             addView(money(m(a.fare), "/ RM${goal.toInt()}"))
@@ -1437,6 +1495,7 @@ class MainActivity : ComponentActivity() {
     override fun onRequestPermissionsResult(code: Int, perms: Array<String>, res: IntArray) {
         super.onRequestPermissionsResult(code, perms, res)
         if (code == 200) launchCapture()
+        if (code == 201 && res.any { it == PackageManager.PERMISSION_GRANTED }) startRiderSession()
     }
 
     private fun launchCapture() {
