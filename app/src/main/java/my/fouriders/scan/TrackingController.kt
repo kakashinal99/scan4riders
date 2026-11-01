@@ -65,17 +65,24 @@ object OrderEventRecorder {
     suspend fun record(context: Context, orderId: Long, type: String, decision: String? = null) {
         val db = TrackingDatabase.get(context.applicationContext)
         val dao = db.trackingDao()
-        val existing = dao.events(orderId)
+        var existing = dao.events(orderId)
         if (existing.any { it.type == type }) return
+        if (type !in setOf("SCAN", "ACCEPT", "REJECT", "COMPLETE")) return
+
+        // Preserve the state sequence even if two UI callbacks race to persist their events.
+        if (type != "SCAN" && existing.none { it.type == "SCAN" }) {
+            dao.addEvent(OrderEventEntity(orderId = orderId, sessionId = TrackingController.activeSessionId(context),
+                type = "SCAN", occurredAt = orderId))
+            existing = dao.events(orderId)
+        }
 
         val accepted = existing.any { it.type == "ACCEPT" }
         val rejected = existing.any { it.type == "REJECT" }
         when (type) {
             "SCAN" -> if (existing.isNotEmpty()) return
-            "ACCEPT" -> if (rejected || !existing.any { it.type == "SCAN" }) return
-            "REJECT" -> if (accepted || rejected || !existing.any { it.type == "SCAN" }) return
+            "ACCEPT" -> if (rejected || accepted) return
+            "REJECT" -> if (accepted || rejected) return
             "COMPLETE" -> if (!accepted || rejected) return
-            else -> return
         }
 
         val sessionId = TrackingController.activeSessionId(context)
@@ -100,10 +107,31 @@ object OrderEventRecorder {
         )
 
         if (type == "ACCEPT") {
-            dao.addTrip(TripSegmentEntity(orderId = orderId, sessionId = sessionId, startedAt = System.currentTimeMillis()))
+            if (dao.activeTrip(orderId) == null) {
+                dao.addTrip(TripSegmentEntity(orderId = orderId, sessionId = sessionId, startedAt = System.currentTimeMillis()))
+            }
         } else if (type == "COMPLETE") {
             val trip = dao.activeTrip(orderId)
-            if (trip != null) dao.finishTrip(trip.tripId, System.currentTimeMillis(), "COMPLETED", 0.0)
+            if (trip != null) {
+                val endedAt = System.currentTimeMillis()
+                val samples = if (trip.sessionId != null) dao.locationsBetween(trip.sessionId, trip.startedAt, endedAt) else emptyList()
+                val usable = samples.filter { (it.accuracyM ?: Float.MAX_VALUE) <= 50f }
+                var distanceKm = 0.0
+                var previous: LocationSampleEntity? = null
+                for (sample in usable) {
+                    val before = previous
+                    if (before != null) {
+                        val seconds = (sample.recordedAt - before.recordedAt) / 1000.0
+                        val leg = Geo.straight(
+                            Geo.P(before.latitude, before.longitude),
+                            Geo.P(sample.latitude, sample.longitude)
+                        )
+                        if (seconds in 1.0..30.0 && leg / seconds <= 0.10) distanceKm += leg
+                    }
+                    previous = sample
+                }
+                dao.finishTrip(trip.tripId, endedAt, "COMPLETED", distanceKm)
+            }
         }
     }
 }
