@@ -81,8 +81,8 @@ interface TrackingDao {
     @Query("SELECT * FROM rider_sessions WHERE status = 'ACTIVE' ORDER BY startedAt DESC LIMIT 1")
     suspend fun activeSession(): RiderSessionEntity?
 
-    @Query("UPDATE rider_sessions SET endedAt = :endedAt, status = :status WHERE sessionId = :sessionId")
-    suspend fun closeSession(sessionId: String, endedAt: Long, status: String = "ENDED")
+    @Query("UPDATE rider_sessions SET endedAt = :p2, status = :p3 WHERE sessionId = :p1")
+    suspend fun closeSession(p1: String, p2: Long, p3: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun putOrder(order: TrackedOrderEntity)
