@@ -594,6 +594,14 @@ class MainActivity : ComponentActivity() {
 
     private fun updateOrderDecision(order: Rec, decision: String) {
         Store.upsert(this, order.copy(decision = decision))
+        if (OverlayService.running) {
+            startService(
+                Intent(this, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_ORDER_UPDATED)
+                    .putExtra(OverlayService.EXTRA_ORDER_ID, order.id)
+                    .putExtra(OverlayService.EXTRA_DECISION, decision)
+            )
+        }
         val event = when (decision) { "A" -> "ACCEPT"; "S" -> "REJECT"; "T" -> "COMPLETE"; else -> null }
         if (event != null) lifecycleScope.launch {
             try { OrderEventRecorder.record(this@MainActivity, order.id, event) } catch (_: Exception) { }
