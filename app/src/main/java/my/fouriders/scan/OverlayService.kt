@@ -63,6 +63,9 @@ class OverlayService : Service() {
         const val ACTION_STOP = "my.fouriders.scan.STOP"
         const val ACTION_HIDE = "my.fouriders.scan.HIDE"
         const val ACTION_SHOW = "my.fouriders.scan.SHOW"
+        const val ACTION_ORDER_UPDATED = "my.fouriders.scan.ORDER_UPDATED"
+        const val EXTRA_ORDER_ID = "order_id"
+        const val EXTRA_DECISION = "decision"
         @Volatile var hidden = false
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
@@ -130,6 +133,24 @@ class OverlayService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_ORDER_UPDATED) {
+            val orderId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
+            val decision = intent.getStringExtra(EXTRA_DECISION).orEmpty()
+            val currentId = prefsOrNull()?.getLong("curId", 0L) ?: 0L
+            if (orderId != 0L && orderId == currentId) {
+                handler.post {
+                    when (decision) {
+                        "A" -> {
+                            tookWhat = "Accepted"
+                            if (card != null) refresh()
+                        }
+                        "S" -> clearScan("Offer rejected in Dashboard")
+                        "T" -> clearScan("Order completed in Dashboard")
+                    }
+                }
+            }
+            return START_NOT_STICKY
+        }
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
@@ -1108,6 +1129,8 @@ class OverlayService : Service() {
         leg.src = "Edited by you"
         refresh()
     }
+
+    private fun prefsOrNull(): SharedPreferences? = if (::prefs.isInitialized) prefs else null
 
     private fun shortToast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
 
