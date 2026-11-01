@@ -50,6 +50,10 @@ import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -703,6 +707,16 @@ class OverlayService : Service() {
         val keep = Store.get(this, id)?.decision.orEmpty()
         val stopsStr = Session.stops.values.joinToString(";") { (if (it.collect) "P:" else "D:") + it.name.replace(";", " ").replace(":", " ") }
         Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep, stopsStr))
+        val event = when (decision) {
+            null -> "SCAN"
+            "A" -> "ACCEPT"
+            "S" -> "REJECT"
+            "T" -> "COMPLETE"
+            else -> null
+        }
+        if (event != null) CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try { OrderEventRecorder.record(this@OverlayService, id, event) } catch (_: Exception) { }
+        }
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
