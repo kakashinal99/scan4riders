@@ -114,8 +114,8 @@ interface TrackingDao {
     @Query("UPDATE trip_segments SET completedAt = :completedAt, status = :status, distanceKm = :distanceKm WHERE tripId = :tripId")
     suspend fun finishTrip(tripId: Long, completedAt: Long, status: String, distanceKm: Double)
 
-    @Query("UPDATE trip_segments SET status = 'INTERRUPTED' WHERE status = 'ACTIVE'")
-    suspend fun interruptOpenTrips()
+    @Query("UPDATE trip_segments SET status = 'INTERRUPTED' WHERE status = 'ACTIVE' AND sessionId = :sessionId")
+    suspend fun interruptOpenTrips(sessionId: String)
 
     @Query("UPDATE rider_sessions SET status = 'INTERRUPTED', endedAt = :endedAt WHERE status = 'ACTIVE'")
     suspend fun interruptOpenSessions()
