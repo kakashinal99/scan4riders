@@ -25,7 +25,11 @@ object TrackingController {
         if (existing != null) {
             app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putString(ACTIVE_ID, existing.sessionId).apply()
-            startService(app, existing.sessionId)
+            try {
+                startService(app, existing.sessionId)
+            } catch (e: Exception) {
+                throw e
+            }
             return existing.sessionId
         }
 
@@ -34,7 +38,13 @@ object TrackingController {
         dao.putSession(RiderSessionEntity(id, now))
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(ACTIVE_ID, id).apply()
-        startService(app, id)
+        try {
+            startService(app, id)
+        } catch (e: Exception) {
+            dao.closeSession(id, System.currentTimeMillis(), "INTERRUPTED")
+            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(ACTIVE_ID).apply()
+            throw e
+        }
         return id
     }
 
