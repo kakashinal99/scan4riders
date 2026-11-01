@@ -820,9 +820,10 @@ class MainActivity : ComponentActivity() {
             p.addView(box, LinearLayout.LayoutParams(MATCH, dp(140)).apply { topMargin = dp(10); bottomMargin = dp(23) })
         }
 
-        val shown = if (hview == 0) rows.take(4) else rows
         val historyCount = rows.sumOf { if (isCounted(it)) deliveryCount(it) else 1 }
-        p.addView(sectionHead("Order history", pillT(if (hview == 0) "${minOf(4, historyCount)} RECENT ORDERS" else "${historyCount} TOTAL ORDERS")))
+        val expandedRows = rows.flatMap { activityRows(it) }
+        val shown = if (hview == 0) expandedRows.take(4) else expandedRows
+        p.addView(sectionHead("Order history", pillT(if (hview == 0) "${shown.size} RECENT ORDERS" else "${historyCount} TOTAL ORDERS")))
         val vs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("RECENT", "ALL HISTORY ${rows.size}").forEachIndexed { i, s ->
             val on = i == hview
@@ -836,7 +837,7 @@ class MainActivity : ComponentActivity() {
         }
         p.addView(vs, mtb(0, 8))
         if (shown.isEmpty()) p.addView(emptyCard("No order records for this period yet."))
-        else shown.forEach { rec -> activityRows(rec).forEach { p.addView(it) } }
+        else shown.forEach { p.addView(it) }
         p.addView(noteT("Calculated from orders saved on this phone. Tap a record to edit or delete it. Online time is the span between your first and last order each day."), mtb(20, 0))
     }
 
