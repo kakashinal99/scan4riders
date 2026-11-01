@@ -55,7 +55,7 @@ object TrackingController {
         if (id != null) {
             val dao = TrackingDatabase.get(app).trackingDao()
             dao.interruptOpenTrips(id)
-            dao.closeSession(id, System.currentTimeMillis())
+            dao.closeSession(id, System.currentTimeMillis(), "ENDED")
         }
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(ACTIVE_ID).apply()
     }
