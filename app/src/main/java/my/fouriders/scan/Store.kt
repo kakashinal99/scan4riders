@@ -2,6 +2,10 @@ package my.fouriders.scan
 
 import android.content.Context
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /** One scanned order. decision: "T" taken, "S" skipped, "" not decided. */
 data class Rec(
@@ -38,13 +42,41 @@ object Store {
         val i = rows.indexOfFirst { it.id == r.id }
         if (i >= 0) rows[i] = r else rows.add(r)
         save(ctx, rows)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try {
+                TrackingDatabase.get(ctx).trackingDao().putOrder(
+                    TrackedOrderEntity(
+                        orderId = r.id,
+                        sessionId = TrackingController.activeSessionId(ctx),
+                        word = r.word,
+                        fare = r.fare,
+                        plannedKm = r.km,
+                        rmPerKm = r.rpk,
+                        area = r.area,
+                        stops = r.stops,
+                        scannedAt = r.id,
+                        decision = r.decision
+                    )
+                )
+            } catch (_: Exception) { }
+        }
     }
 
-    fun delete(ctx: Context, id: Long) = save(ctx, all(ctx).filter { it.id != id })
+    fun delete(ctx: Context, id: Long) {
+        save(ctx, all(ctx).filter { it.id != id })
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try { TrackingDatabase.get(ctx).trackingDao().deleteOrder(id) } catch (_: Exception) { }
+        }
+    }
 
     fun get(ctx: Context, id: Long): Rec? = all(ctx).firstOrNull { it.id == id }
 
-    fun clear(ctx: Context) = prefs(ctx).edit().clear().apply()
+    fun clear(ctx: Context) {
+        prefs(ctx).edit().clear().apply()
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            try { TrackingDatabase.get(ctx).trackingDao().clearOrders() } catch (_: Exception) { }
+        }
+    }
 
     private val skip = Regex(
         """^(no\.?|lot|unit|blok|block|level|lvl|floor)\b|^\d|malaysia|^(wilayah|kuala lumpur|selangor|johor|penang|pulau pinang|perak|negeri sembilan|melaka|kedah|pahang|sabah|sarawak|kelantan|terengganu|perlis|putrajaya|labuan)""",
