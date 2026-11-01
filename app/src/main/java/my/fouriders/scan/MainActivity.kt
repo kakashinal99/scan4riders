@@ -825,7 +825,7 @@ class MainActivity : ComponentActivity() {
         val shown = if (hview == 0) expandedRows.take(4) else expandedRows
         p.addView(sectionHead("Order history", pillT(if (hview == 0) "${shown.size} RECENT ORDERS" else "${historyCount} TOTAL ORDERS")))
         val vs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        listOf("RECENT", "ALL HISTORY ${rows.size}").forEachIndexed { i, s ->
+        listOf("RECENT", "ALL HISTORY ${historyCount}").forEachIndexed { i, s ->
             val on = i == hview
             vs.addView(tv(s, 10f, if (on) OK else MUT, true).apply {
                 gravity = Gravity.CENTER
