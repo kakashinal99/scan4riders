@@ -43,7 +43,9 @@ object TrackingController {
         val id = activeSessionId(app)
         app.stopService(Intent(app, LocationTrackingService::class.java).setAction(LocationTrackingService.ACTION_STOP))
         if (id != null) {
-            TrackingDatabase.get(app).trackingDao().closeSession(id, System.currentTimeMillis())
+            val dao = TrackingDatabase.get(app).trackingDao()
+            dao.interruptOpenTrips(id)
+            dao.closeSession(id, System.currentTimeMillis())
         }
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(ACTIVE_ID).apply()
     }
