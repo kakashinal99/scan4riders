@@ -895,7 +895,6 @@ class OverlayService : Service() {
             gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, dp(2))
             maxLines = 1
-            autoSizeTextTypeWithDefaults(TextView.AUTO_SIZE_TEXT_TYPE_UNIFORM)
         }, matchW())
         box.addView(tv("Estimated total fare · " + drops + " drop-off" + if (drops == 1) "" else "s", 13f, D_MUTED).apply {
             gravity = Gravity.CENTER
@@ -917,7 +916,7 @@ class OverlayService : Service() {
         metricRow.addView(metric(String.format(Locale.US, "%.1f km", v.km), "Total distance"),
             LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginEnd = dp(5) })
         metricRow.addView(metric("RM" + f2(v.rpk ?: 0.0), "Fare / km"),
-            LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginHorizontal = dp(3) })
+            LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
         metricRow.addView(metric(mins.toString() + " min", "Est. duration"),
             LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginStart = dp(5) })
         box.addView(metricRow, matchW().apply { topMargin = dp(3); bottomMargin = dp(18) })
