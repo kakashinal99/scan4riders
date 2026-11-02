@@ -38,14 +38,14 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
 
     companion object {
-        private val BG = Color.parseColor("#080D0B")
-        private val INK = Color.parseColor("#F1F7F3")
-        private val MUT = Color.parseColor("#91A39A")
-        private val LINE = Color.parseColor("#293831")
-        private val LINE2 = Color.parseColor("#1B2420")
+        private val BG = Color.parseColor("#0B100D")
+        private val INK = Color.parseColor("#F4F7F3")
+        private val MUT = Color.parseColor("#879087")
+        private val LINE = Color.parseColor("#29372F")
+        private val LINE2 = Color.parseColor("#171D19")
         private val SOFTBG = Color.parseColor("#17211E")
-        private val BLUE = Color.parseColor("#62E5A0")
-        private val OK = Color.parseColor("#62E5A0")
+        private val BLUE = Color.parseColor("#C8F36A")
+        private val OK = Color.parseColor("#C8F36A")
         private val MID = Color.parseColor("#F4CC68")
         private val BAD = Color.parseColor("#FF7770")
         private val WARNT = Color.parseColor("#352A16")
@@ -69,8 +69,8 @@ class MainActivity : ComponentActivity() {
 
     private val MATCH = ViewGroup.LayoutParams.MATCH_PARENT
     private val WRAP = ViewGroup.LayoutParams.WRAP_CONTENT
-    private val NAVBG = Color.parseColor("#0C1210")
-    private val NAVMUT = Color.parseColor("#819188")
+    private val NAVBG = Color.parseColor("#101711")
+    private val NAVMUT = Color.parseColor("#879087")
 
     private fun lp(w: Int, h: Int, wt: Float = -1f) =
         if (wt >= 0f) LinearLayout.LayoutParams(w, h, wt) else LinearLayout.LayoutParams(w, h)
@@ -92,7 +92,7 @@ class MainActivity : ComponentActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                intArrayOf(Color.parseColor("#143024"), Color.parseColor("#0A100E"), Color.parseColor("#080B0A")))
+                intArrayOf(Color.parseColor("#253321"), Color.parseColor("#172019"), Color.parseColor("#0B100D")))
             fitsSystemWindows = true
         }
         content = ScrollView(this)
@@ -253,8 +253,8 @@ class MainActivity : ComponentActivity() {
         brand.addView(tv("4", 24f, Color.parseColor("#F5FFF9"), true).apply {
             gravity = Gravity.CENTER
             setShadowLayer(dp(9).toFloat(), 0f, 0f, Color.parseColor("#61EAA0"))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#293A33"), Color.parseColor("#080D0B"))).apply {
-                cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.parseColor("#53645B"))
+            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#253321"), Color.parseColor("#0B100D"))).apply {
+                cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.parseColor("#3A4A3D"))
             }
         }, LinearLayout.LayoutParams(dp(37), dp(37)))
         brand.addView(tv("4Riders", 21f, INK, true).apply { letterSpacing = -0.04f; setPadding(dp(10), 0, 0, 0) })
@@ -263,7 +263,7 @@ class MainActivity : ComponentActivity() {
         r.addView(tv(txt, 10f, OK, true).apply {
             letterSpacing = 0.1f
             setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = gd(Color.parseColor("#10251B"), 30, Color.parseColor("#286447"))
+            background = gd(Color.parseColor("#1B281B"), 30, Color.parseColor("#526B3B"))
             setOnClickListener { scanControl() }
         })
         r.addView(tv(if (tab == 3) "←" else "⚙", 19f, INK, true).apply {
@@ -278,7 +278,7 @@ class MainActivity : ComponentActivity() {
     private fun hero(build: LinearLayout.() -> Unit): LinearLayout = col().apply {
         setPadding(dp(18), dp(19), dp(18), dp(17))
         background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#183D2B"), Color.parseColor("#11231B"), Color.parseColor("#101815"))).apply {
+            intArrayOf(Color.parseColor("#253321"), Color.parseColor("#172019"), Color.parseColor("#0E1510"))).apply {
             cornerRadius = dp(22).toFloat(); setStroke(dp(1), Color.parseColor("#2B6245"))
         }
         build()
@@ -310,10 +310,10 @@ class MainActivity : ComponentActivity() {
 
     private fun track(pct: Double): View {
         val f = FrameLayout(this)
-        f.background = gd(Color.parseColor("#345342"), 9)
+        f.background = gd(Color.parseColor("#29372F"), 9)
         f.addView(View(this).apply {
             background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                intArrayOf(Color.parseColor("#39C77F"), Color.parseColor("#8CF2AE"))).apply { cornerRadius = dp(9).toFloat() }
+                intArrayOf(Color.parseColor("#C8F36A"), Color.parseColor("#DDF7A8"))).apply { cornerRadius = dp(9).toFloat() }
         }, FrameLayout.LayoutParams(0, MATCH))
         f.post {
             (f.getChildAt(0).layoutParams as FrameLayout.LayoutParams).width = (f.width * pct / 100.0).toInt()
@@ -352,9 +352,9 @@ class MainActivity : ComponentActivity() {
         val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         opts.forEachIndexed { i, s ->
             val s1 = i == sel
-            r.addView(tv(s, 10f, if (s1) OK else Color.parseColor("#9AABA2"), true).apply {
+            r.addView(tv(s, 10f, if (s1) OK else Color.parseColor("#AAB2AB"), true).apply {
                 setPadding(dp(13), dp(8), dp(13), dp(8))
-                background = gd(Color.parseColor(if (s1) "#153624" else "#131C18"), 30, Color.parseColor(if (s1) "#34734E" else "#2A3831"))
+                background = gd(Color.parseColor(if (s1) "#1B281B" else "#171D19"), 30, Color.parseColor(if (s1) "#526B3B" else "#2A3831"))
                 setOnClickListener { on(i) }
             }, LinearLayout.LayoutParams(WRAP, WRAP).apply { marginEnd = dp(7) })
         }
@@ -393,12 +393,12 @@ class MainActivity : ComponentActivity() {
             val label = if (s.collect) (if (pk > 1) "Pickup ${++pn}" else "Pickup") else (if (dr > 1) "Drop-off ${++dn}" else "Drop-off")
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, if (i < items.size - 1) dp(12) else 0) }
             val rail = FrameLayout(this)
-            rail.addView(View(this).apply { setBackgroundColor(Color.parseColor("#426252")) }, FrameLayout.LayoutParams(dp(1), MATCH).apply { marginStart = dp(6) })
+            rail.addView(View(this).apply { setBackgroundColor(Color.parseColor("#526B3B")) }, FrameLayout.LayoutParams(dp(1), MATCH).apply { marginStart = dp(6) })
             rail.addView(View(this).apply {
                 background = GradientDrawable().apply {
                     shape = GradientDrawable.OVAL
                     setColor(if (s.collect) OK else MID)
-                    setStroke(dp(3), Color.parseColor(if (s.collect) "#193C2A" else "#41351C"))
+                    setStroke(dp(3), Color.parseColor(if (s.collect) "#253321" else "#3B3520"))
                 }
             }, FrameLayout.LayoutParams(dp(14), dp(14)))
             row.addView(rail, LinearLayout.LayoutParams(dp(15), MATCH))
@@ -419,18 +419,18 @@ class MainActivity : ComponentActivity() {
         items.add("↗ ${f1(o.km)} km total")
         if (cfgBool("showeta")) items.add("◷ ${Math.round(o.km / 24.0 * 60).toInt().coerceAtLeast(1)} min est.")
         if (cfgBool("showrpk")) items.add("RM${f2(o.rpk)}/km")
-        items.forEach { mr.addView(tv(it, 10f, Color.parseColor("#C2D0C8")).apply { setPadding(0, 0, dp(12), 0) }) }
+        items.forEach { mr.addView(tv(it, 10f, Color.parseColor("#C5CEC5")).apply { setPadding(0, 0, dp(12), 0) }) }
         w.addView(mr)
         return w
     }
 
     private fun btn(t: String, primary: Boolean, danger: Boolean = false, f: () -> Unit) = tv(t, 11f,
-        if (primary) Color.parseColor("#062014") else if (danger) Color.parseColor("#FF9A92") else Color.parseColor("#D9E3DD"), true).apply {
+        if (primary) Color.parseColor("#101510") else if (danger) Color.parseColor("#F3AAA1") else Color.parseColor("#D9E3DD"), true).apply {
         gravity = Gravity.CENTER
         setPadding(dp(9), dp(12), dp(9), dp(12))
         background = if (primary) GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
             intArrayOf(Color.parseColor("#38C77F"), Color.parseColor("#66E5A0"))).apply { cornerRadius = dp(12).toFloat() }
-        else if (danger) gd(Color.parseColor("#281715"), 12, Color.parseColor("#633C38"))
+        else if (danger) gd(Color.parseColor("#351C1A"), 12, Color.parseColor("#6B3C36"))
         else gd(Color.parseColor("#1A2420"), 12, Color.parseColor("#34433B"))
         setOnClickListener { f() }
     }
@@ -438,7 +438,7 @@ class MainActivity : ComponentActivity() {
     private fun cardBox() = col().apply {
         setPadding(dp(15), dp(15), dp(15), dp(15))
         background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#17221E"), Color.parseColor("#101613"))).apply {
+            intArrayOf(Color.parseColor("#171D19"), Color.parseColor("#0E1510"))).apply {
             cornerRadius = dp(18).toFloat(); setStroke(dp(1), LINE)
         }
     }
@@ -476,7 +476,7 @@ class MainActivity : ComponentActivity() {
             card.addView(tv(label, 9f, OK, true).apply {
                 letterSpacing = 0.1f
                 setPadding(dp(8), dp(5), dp(8), dp(5))
-                background = gd(Color.parseColor("#193323"), 8)
+                background = gd(Color.parseColor("#1B281B"), 8)
             }, LinearLayout.LayoutParams(WRAP, WRAP))
             card.addView(eyebrow(if (parseStops(o.stops).count { it.collect } > 1) "Batch order · ${parseStops(o.stops).count { it.collect }} pickups" else "Single order"), mtb(10, 0))
             card.addView(tv("RM" + f2(o.fare), 26f, INK, true).apply { letterSpacing = -0.04f })
@@ -508,7 +508,7 @@ class MainActivity : ComponentActivity() {
             gravity = Gravity.CENTER
             letterSpacing = 0.07f
             setPadding(dp(15), dp(15), dp(15), dp(15))
-            background = gd(Color.parseColor("#10291C"), 17, Color.parseColor("#3E9865"))
+            background = gd(Color.parseColor("#1B281B"), 17, Color.parseColor("#526B3B"))
             setOnClickListener { scanControl() }
         }
     }
@@ -843,7 +843,7 @@ class MainActivity : ComponentActivity() {
                 gravity = Gravity.CENTER
                 letterSpacing = 0.05f
                 setPadding(dp(10), dp(11), dp(10), dp(11))
-                background = gd(Color.parseColor(if (on) "#153624" else "#111A15"), 11, Color.parseColor(if (on) "#34734E" else "#2A3831"))
+                background = gd(Color.parseColor(if (on) "#1B281B" else "#111A15"), 11, Color.parseColor(if (on) "#526B3B" else "#2A3831"))
                 setOnClickListener { hview = i; render() }
             }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { if (i == 0) marginEnd = dp(4) else marginStart = dp(4) })
         }
@@ -856,7 +856,7 @@ class MainActivity : ComponentActivity() {
     private fun kpi(label: String, value: String, sub: String): View = col().apply {
         setPadding(dp(13), dp(13), dp(13), dp(13))
         background = GradientDrawable(GradientDrawable.Orientation.TL_BR,
-            intArrayOf(Color.parseColor("#17221E"), Color.parseColor("#101613"))).apply {
+            intArrayOf(Color.parseColor("#171D19"), Color.parseColor("#0E1510"))).apply {
             cornerRadius = dp(15).toFloat(); setStroke(dp(1), LINE)
         }
         addView(tv(label.uppercase(Locale.US), 9f, MUT, true).apply { letterSpacing = 0.1f })
@@ -979,7 +979,7 @@ class MainActivity : ComponentActivity() {
         rec.addView(tv(if (top == null || best == null) "Accept a few orders and your hotspot and timing takeaways will appear here."
         else "Your data suggests ${top.first} has the highest gross per kilometre, while ${best.key} has the strongest total gross." +
             (if (peak != null) " ${peak.first} is the strongest earning block in this period." else ""),
-            11f, Color.parseColor("#C2D0C8")).apply { setLineSpacing(0f, 1.35f); setPadding(0, dp(7), 0, 0) })
+            11f, Color.parseColor("#C5CEC5")).apply { setLineSpacing(0f, 1.35f); setPadding(0, dp(7), 0, 0) })
         p.addView(rec, mtb(15, 0))
         p.addView(noteT("Insights are calculated from the orders saved on this phone. Accuracy improves as you save more orders."), mtb(20, 0))
     }
