@@ -55,6 +55,7 @@ class MainActivity : ComponentActivity() {
     private var tab = 0
     private var filt = 0
     private var per = 0
+    private var hfilter = 0 // 0 all, 1 batch, 2 single
     private lateinit var content: ScrollView
     private lateinit var navRow: LinearLayout
 
@@ -793,6 +794,10 @@ class MainActivity : ComponentActivity() {
     private fun historyRecords(p: LinearLayout) {
         val rows = periodRows(per)
         val taken = rows.filter { isCounted(it) }
+        val listRows = rows.filter { r ->
+            val drops = parseStops(r.stops).count { !it.collect }.coerceAtLeast(1)
+            when (hfilter) { 1 -> drops > 1; 2 -> drops == 1; else -> true }
+        }
         val g = taken.sumOf { it.fare }
         val km = taken.sumOf { it.km }
         val n = taken.sumOf { deliveryCount(it) }
@@ -857,10 +862,11 @@ class MainActivity : ComponentActivity() {
             p.addView(box, LinearLayout.LayoutParams(MATCH, dp(140)).apply { topMargin = dp(10); bottomMargin = dp(23) })
         }
 
-        val historyCount = rows.sumOf { if (isCounted(it)) deliveryCount(it) else 1 }
-        val expandedRows = rows.flatMap { activityRows(it) }
+        val historyCount = listRows.sumOf { if (isCounted(it)) deliveryCount(it) else 1 }
+        val expandedRows = listRows.flatMap { activityRows(it) }
         val shown = if (hview == 0) expandedRows.take(4) else expandedRows
         p.addView(sectionHead("Order history", pillT(if (hview == 0) "${shown.size} RECENT ORDERS" else "${historyCount} TOTAL ORDERS")))
+        p.addView(pills(listOf("All", "Batch", "Single"), hfilter) { hfilter = it; hview = 1; render() }, mtb(8, 8))
         val vs = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         listOf("RECENT", "ALL HISTORY ${historyCount}").forEachIndexed { i, s ->
             val on = i == hview
