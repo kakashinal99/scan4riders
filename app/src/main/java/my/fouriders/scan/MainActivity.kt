@@ -107,7 +107,7 @@ class MainActivity : ComponentActivity() {
     private fun render() {
         val y = content.scrollY
         navRow.removeAllViews()
-        listOf("HOME" to "⌂", "HISTORY" to "◷", "SETTINGS" to "⚙").forEachIndexed { i, (name, icon) ->
+        listOf("HOME" to "⌂", "HISTORY" to "◷", "INSIGHT" to "⌖").forEachIndexed { i, (name, icon) ->
             val on = i == tab
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -123,7 +123,8 @@ class MainActivity : ComponentActivity() {
         topBar(page)
         when (tab) {
             0 -> home(page)
-            1 -> history(page)
+            1 -> historyRecords(page)
+            2 -> insights(page)
             else -> settings(page)
         }
         content.addView(page)
@@ -264,6 +265,12 @@ class MainActivity : ComponentActivity() {
             setPadding(dp(10), dp(6), dp(10), dp(6))
             background = gd(Color.parseColor("#10251B"), 30, Color.parseColor("#286447"))
             setOnClickListener { scanControl() }
+        })
+        r.addView(tv(if (tab == 3) "←" else "⚙", 19f, INK, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(12), dp(5), dp(2), dp(5))
+            contentDescription = if (tab == 3) "Back to Home" else "Settings"
+            setOnClickListener { tab = if (tab == 3) 0 else 3; content.scrollTo(0, 0); render() }
         })
         p.addView(r, mtb(0, 26))
     }
@@ -455,8 +462,14 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             val ac = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            ac.addView(btn("REJECT", false) { updateOrderDecision(o, "S"); toast("Offer rejected · moved to History"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
-            ac.addView(btn("ACCEPT ORDER", true) { updateOrderDecision(o, "A"); toast("Accepted · In Progress"); render() }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
+            val reject = btn("REJECT", false) {
+                itSafeDecision(o, "S", "Offer rejected · moved to History")
+            }
+            val accept = btn("ACCEPT ORDER", true) {
+                itSafeDecision(o, "A", "Accepted · In Progress")
+            }
+            ac.addView(reject, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(4) })
+            ac.addView(accept, LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
             card.addView(ac, mtb(14, 0))
         } else {
             val label = when (mode) { 1 -> "IN PROGRESS"; 2 -> "COMPLETED"; else -> "REJECTED" }
@@ -470,7 +483,7 @@ class MainActivity : ComponentActivity() {
             card.addView(routeView(o))
             card.addView(metricsView(o))
             if (mode == 1) card.addView(btn("MARK AS COMPLETED", true) {
-                updateOrderDecision(o, "T"); toast("Order completed · moved to History"); render()
+                itSafeDecision(o, "T", "Order completed · moved to History")
             }, mtb(12, 0))
             else card.addView(mutedT(if (mode == 2) "Delivery completed." else "Status recorded."), mtb(10, 0))
         }
@@ -592,8 +605,22 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun updateOrderDecision(order: Rec, decision: String) {
-        Store.upsert(this, order.copy(decision = decision))
+    private fun itSafeDecision(order: Rec, decision: String, successMessage: String) {
+        lifecycleScope.launch {
+            val saved = updateOrderDecision(order, decision)
+            if (saved) {
+                toast(successMessage)
+                render()
+            } else {
+                toast("Could not save order status. Please try again.")
+                render()
+            }
+        }
+    }
+
+    private suspend fun updateOrderDecision(order: Rec, decision: String): Boolean {
+        val saved = Store.upsertAndAwait(this, order.copy(decision = decision))
+        if (!saved) return false
         if (OverlayService.running) {
             startService(
                 Intent(this, OverlayService::class.java)
@@ -603,9 +630,10 @@ class MainActivity : ComponentActivity() {
             )
         }
         val event = when (decision) { "A" -> "ACCEPT"; "S" -> "REJECT"; "T" -> "COMPLETE"; else -> null }
-        if (event != null) lifecycleScope.launch {
+        if (event != null) {
             try { OrderEventRecorder.record(this@MainActivity, order.id, event) } catch (_: Exception) { }
         }
+        return true
     }
 
     private fun home(p: LinearLayout) {
@@ -734,28 +762,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun history(p: LinearLayout) {
-        p.addView(h1("Performance"))
-        p.addView(subT("Your records and rider intelligence, kept separate."))
-        val sw = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(dp(5), dp(5), dp(5), dp(5))
-            background = gd(Color.parseColor("#101914"), 14, LINE)
-        }
-        listOf("◷   HISTORY", "⌖   INSIGHTS").forEachIndexed { i, s ->
-            val on = i == hsub
-            sw.addView(tv(s, 11f, if (on) Color.parseColor("#8BF0B4") else MUT, true).apply {
-                gravity = Gravity.CENTER
-                letterSpacing = 0.03f
-                setPadding(dp(8), dp(11), dp(8), dp(11))
-                if (on) background = GradientDrawable(GradientDrawable.Orientation.LEFT_RIGHT,
-                    intArrayOf(Color.parseColor("#1B5638"), Color.parseColor("#17432E"))).apply {
-                    cornerRadius = dp(10).toFloat(); setStroke(dp(1), Color.parseColor("#34734E"))
-                }
-                setOnClickListener { hsub = i; render() }
-            }, LinearLayout.LayoutParams(0, WRAP, 1f).apply { if (i == 0) marginEnd = dp(3) else marginStart = dp(3) })
-        }
-        p.addView(sw, mtb(16, 20))
-        if (hsub == 0) historyRecords(p) else insights(p)
+        historyRecords(p)
     }
 
     private fun historyRecords(p: LinearLayout) {
