@@ -654,6 +654,13 @@ class MainActivity : ComponentActivity() {
             addView(track(pct))
         })
         p.addView(statsRow(listOf("${a.n}" to "ORDERS", f1(a.km) + " km" to "DISTANCE", (if (a.n > 0) m(a.fare / a.n) else "RM0.00") to "AVG / ORDER")))
+        p.addView(sectionHead("Quick actions", mutedT("YOUR WORKSPACE")))
+        val quick = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        quick.addView(btn("START SCANNER", true) { scanControl() },
+            LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginEnd = dp(5) })
+        quick.addView(btn("VIEW HISTORY", false) { tab = 1; hsub = 0; hview = 1; render() },
+            LinearLayout.LayoutParams(0, WRAP, 1f).apply { marginStart = dp(5) })
+        p.addView(quick)
         // One live order capsule at a time: pending -> in progress -> History.
         // Rejected and completed offers stay in History, not separate Home columns.
         val activeOrder = rows.firstOrNull { it.decision == "A" }
@@ -668,7 +675,6 @@ class MainActivity : ComponentActivity() {
         p.addView(if (liveOrder != null) orderCard(liveOrder, if (activeOrder != null) 1 else 0)
             else emptyCard("No active offer. Rejected and completed orders are in History."))
         p.addView(linkT("VIEW HISTORY →") { tab = 1; hsub = 0; hview = 1; render() }, mtb(8, 0))
-        p.addView(scanButton(), mtb(19, 0))
         p.addView(sectionHead("Shift snapshot", pillT("LIVE")))
         val cnt = rows.filter { isCounted(it) }
         if (cnt.isEmpty()) {
