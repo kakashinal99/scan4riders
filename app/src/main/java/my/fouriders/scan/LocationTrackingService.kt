@@ -49,7 +49,15 @@ class LocationTrackingService : Service(), LocationListener {
             return START_NOT_STICKY
         }
 
-        startAsForeground()
+        // Android 14 throws if a location service starts without location permission, and
+        // Android 12+ refuses to restart one from the background. Stop cleanly, never crash.
+        if (!TrackingController.hasLocationPermission(this) || !tryStartForeground()) {
+            scope.launch {
+                TrackingController.markInterrupted(this@LocationTrackingService)
+                stopSelf()
+            }
+            return START_NOT_STICKY
+        }
         val requestedId = intent?.getStringExtra(EXTRA_SESSION_ID)
         if (!requestedId.isNullOrBlank()) {
             sessionId = requestedId
@@ -62,6 +70,13 @@ class LocationTrackingService : Service(), LocationListener {
             }
         }
         return START_STICKY
+    }
+
+    private fun tryStartForeground(): Boolean = try {
+        startAsForeground()
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun startAsForeground() {

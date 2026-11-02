@@ -21,6 +21,20 @@ data class Rec(
 object Store {
     private const val KEY = "rows"
 
+    // Rows are stored one per line. Older builds wrote real newlines; one build wrote the
+    // two characters backslash + n by mistake. Read both, always write real newlines.
+    private val ROW_SPLIT = Regex("""\r?\n|\\n""")
+
+    private fun field(s: String) =
+        s.replace("|", " ").replace("\r", " ").replace("\n", " ").replace("\\n", " ")
+
+    private fun encode(rows: List<Rec>): String = rows.joinToString("\n") {
+        String.format(
+            Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s",
+            it.id, it.word, it.rpk, it.fare, it.km, it.decision, field(it.area), field(it.stops)
+        )
+    }
+
     // Keep a hot in-memory snapshot so Accept/Reject never reparses the full
     // history on the main thread. Serialize persistence on one background lane.
     private val lock = Any()
@@ -31,7 +45,7 @@ object Store {
     private fun prefs(ctx: Context) = ctx.applicationContext.getSharedPreferences("orders", Context.MODE_PRIVATE)
 
     private fun decode(ctx: Context): List<Rec> =
-        prefs(ctx).getString(KEY, "").orEmpty().split("\\n").mapNotNull { line ->
+        prefs(ctx).getString(KEY, "").orEmpty().split(ROW_SPLIT).mapNotNull { line ->
             val p = line.split("|")
             if (p.size < 7) null else try {
                 Rec(p[0].toLong(), p[1], p[2].toDouble(), p[3].toDouble(), p[4].toDouble(), p[6], p[5], p.getOrNull(7).orEmpty())
@@ -53,9 +67,7 @@ object Store {
         val safe = rows.takeLast(3000)
         synchronized(lock) { cachedRows = safe }
         scope.launch {
-            val s = safe.joinToString("\\n") {
-                String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\\n", " "), it.stops.replace("|", " ").replace("\\n", " "))
-            }
+            val s = encode(safe)
             prefs(ctx).edit().putString(KEY, s).apply()
         }
     }
@@ -69,9 +81,7 @@ object Store {
         }
         scope.launch {
             // Disk and Room work stay off the UI thread and are serialized.
-            val s = updated.joinToString("\\n") {
-                String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\\n", " "), it.stops.replace("|", " ").replace("\\n", " "))
-            }
+            val s = encode(updated)
             prefs(ctx).edit().putString(KEY, s).apply()
             try {
                 TrackingDatabase.get(ctx).trackingDao().putOrder(
@@ -101,9 +111,7 @@ object Store {
             if (i >= 0) rows[i] = r else rows.add(r)
             rows.takeLast(3000).also { cachedRows = it }
         }
-        val s = updated.joinToString("\\n") {
-            String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\\n", " "), it.stops.replace("|", " ").replace("\\n", " "))
-        }
+        val s = encode(updated)
         val saved = prefs(ctx).edit().putString(KEY, s).commit()
         if (!saved) {
             synchronized(lock) { cachedRows = previous }

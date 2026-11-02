@@ -60,6 +60,20 @@ object TrackingController {
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(ACTIVE_ID).apply()
     }
 
+    /** Ends the open session when Android refuses to run or restart the GPS service. */
+    suspend fun markInterrupted(context: Context) {
+        val app = context.applicationContext
+        val id = activeSessionId(app)
+        if (id != null) {
+            try {
+                val dao = TrackingDatabase.get(app).trackingDao()
+                dao.interruptOpenTrips(id)
+                dao.closeSession(id, System.currentTimeMillis(), "INTERRUPTED")
+            } catch (_: Exception) { }
+        }
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(ACTIVE_ID).apply()
+    }
+
     private fun startService(context: Context, sessionId: String) {
         val intent = Intent(context, LocationTrackingService::class.java)
             .setAction(LocationTrackingService.ACTION_START)

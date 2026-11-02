@@ -173,7 +173,13 @@ class OverlayService : Service() {
             stopSelf()
             return START_NOT_STICKY
         }
-        startInForeground()
+        try {
+            startInForeground()
+        } catch (e: Exception) {
+            toast("Could not start scanner: ${e.message}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         if (projection == null) {
             try {
                 setup(code, data)

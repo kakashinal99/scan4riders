@@ -163,7 +163,8 @@ object TrackingLegacyImport {
 
         val oldRows = context.getSharedPreferences("orders", Context.MODE_PRIVATE)
             .getString("rows", "").orEmpty()
-            .lineSequence()
+            .split(Regex("""\r?\n|\\n"""))
+            .asSequence()
             .mapNotNull { line ->
                 val p = line.split("|")
                 if (p.size < 7) null else try {
