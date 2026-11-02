@@ -102,6 +102,37 @@ object Store {
         }
     }
 
+    /** Changes the in-memory list at once so the screen can redraw now. Returns the old list for rollback. */
+    fun applyNow(ctx: Context, r: Rec): List<Rec> {
+        val before = snapshot(ctx)
+        synchronized(lock) {
+            val rows = (cachedRows ?: before).toMutableList()
+            val i = rows.indexOfFirst { it.id == r.id }
+            if (i >= 0) rows[i] = r else rows.add(r)
+            cachedRows = rows.takeLast(3000)
+        }
+        return before
+    }
+
+    fun restore(rows: List<Rec>) {
+        synchronized(lock) { cachedRows = rows }
+    }
+
+    /**
+     * Saves a decision off the UI thread, then records its event. It runs on the app-wide
+     * lane, so it still finishes if the screen is closed. done() is called on the main thread.
+     */
+    fun saveDecisionAsync(ctx: Context, r: Rec, event: String?, done: (Boolean) -> Unit) {
+        val app = ctx.applicationContext
+        scope.launch {
+            val ok = try { upsertAndAwait(app, r) } catch (_: Exception) { false }
+            if (ok && event != null) {
+                try { OrderEventRecorder.record(app, r.id, event) } catch (_: Exception) { }
+            }
+            withContext(Dispatchers.Main) { done(ok) }
+        }
+    }
+
     /** Persist a rider decision before the UI reports it as complete. */
     suspend fun upsertAndAwait(ctx: Context, r: Rec): Boolean = withContext(io) {
         val previous = snapshot(ctx)

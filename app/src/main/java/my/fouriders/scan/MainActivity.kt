@@ -625,35 +625,39 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * The screen and the scanner bubble change immediately. Saving happens in the background;
+     * if it fails the old status comes back with a message.
+     */
     private fun itSafeDecision(order: Rec, decision: String, successMessage: String) {
-        lifecycleScope.launch {
-            val saved = updateOrderDecision(order, decision)
-            if (saved) {
-                toast(successMessage)
-                render()
-            } else {
-                toast("Could not save order status. Please try again.")
-                render()
+        val updated = order.copy(decision = decision)
+        val before = Store.applyNow(this, updated)
+        notifyScanner(order.id, decision)
+        toast(successMessage)
+        render()
+        val event = when (decision) { "A" -> "ACCEPT"; "S" -> "REJECT"; "T" -> "COMPLETE"; else -> null }
+        Store.saveDecisionAsync(this, updated, event) { saved ->
+            if (!saved) {
+                Store.restore(before)
+                notifyScanner(order.id, order.decision)
+                if (!isFinishing && !isDestroyed) {
+                    toast("Could not save order status. It was put back, please try again.")
+                    render()
+                }
             }
         }
     }
 
-    private suspend fun updateOrderDecision(order: Rec, decision: String): Boolean {
-        val saved = Store.upsertAndAwait(this, order.copy(decision = decision))
-        if (!saved) return false
-        if (OverlayService.running) {
+    private fun notifyScanner(orderId: Long, decision: String) {
+        if (!OverlayService.running) return
+        try {
             startService(
                 Intent(this, OverlayService::class.java)
                     .setAction(OverlayService.ACTION_ORDER_UPDATED)
-                    .putExtra(OverlayService.EXTRA_ORDER_ID, order.id)
+                    .putExtra(OverlayService.EXTRA_ORDER_ID, orderId)
                     .putExtra(OverlayService.EXTRA_DECISION, decision)
             )
-        }
-        val event = when (decision) { "A" -> "ACCEPT"; "S" -> "REJECT"; "T" -> "COMPLETE"; else -> null }
-        if (event != null) {
-            try { OrderEventRecorder.record(this@MainActivity, order.id, event) } catch (_: Exception) { }
-        }
-        return true
+        } catch (_: Exception) { }
     }
 
     private fun home(p: LinearLayout) {

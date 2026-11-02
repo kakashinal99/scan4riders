@@ -27,6 +27,22 @@ object Geo {
 
     private var lastNominatim = 0L
 
+    /** Instant position from the last fix Android already holds. Never waits for GPS. */
+    @SuppressLint("MissingPermission")
+    fun lastKnown(ctx: Context): P? {
+        if (ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ctx.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED
+        ) return null
+        return try {
+            val lm = ctx.getSystemService(LocationManager::class.java)
+            val loc = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: lm.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            loc?.let { P(it.latitude, it.longitude) }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     @SuppressLint("MissingPermission")
     fun gps(ctx: Context): P? {
         if (ctx.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&

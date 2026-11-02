@@ -112,7 +112,7 @@ object OrderEventRecorder {
         }
 
         val sessionId = TrackingController.activeSessionId(context)
-        val location = try { Geo.gps(context) } catch (_: Exception) { null }
+        val location = try { Geo.lastKnown(context) } catch (_: Exception) { null }
         val accuracy = try {
             val lm = context.getSystemService(LocationManager::class.java)
             val l = lm.getLastKnownLocation(LocationManager.GPS_PROVIDER)
