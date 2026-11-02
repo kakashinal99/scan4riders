@@ -248,23 +248,42 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun topBar(p: LinearLayout) {
-        val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        val brand = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        brand.addView(tv("4", 24f, Color.parseColor("#F5FFF9"), true).apply {
-            gravity = Gravity.CENTER
-            setShadowLayer(dp(9).toFloat(), 0f, 0f, Color.parseColor("#61EAA0"))
-            background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(Color.parseColor("#253321"), Color.parseColor("#0B100D"))).apply {
-                cornerRadius = dp(11).toFloat(); setStroke(dp(1), Color.parseColor("#3A4A3D"))
-            }
-        }, LinearLayout.LayoutParams(dp(37), dp(37)))
-        brand.addView(tv("4Riders", 21f, INK, true).apply { letterSpacing = -0.04f; setPadding(dp(10), 0, 0, 0) })
+        val r = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val brand = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        brand.addView(FrameLayout(this).apply {
+            background = gd(OK, 11)
+            addView(tv("4", 21f, Color.parseColor("#101510"), true).apply {
+                gravity = Gravity.CENTER
+                textAlignment = View.TEXT_ALIGNMENT_CENTER
+            }, FrameLayout.LayoutParams(MATCH, MATCH))
+        }, LinearLayout.LayoutParams(dp(36), dp(36)))
+        val brandText = col().apply { setPadding(dp(9), 0, 0, 0) }
+        brandText.addView(tv("4RIDERS", 13f, INK, true).apply { letterSpacing = 0.12f })
+        brandText.addView(tv("RIDER WORKSPACE", 8f, MUT, true).apply {
+            letterSpacing = 0.16f
+            setPadding(0, dp(2), 0, 0)
+        })
+        brand.addView(brandText)
         r.addView(brand, LinearLayout.LayoutParams(0, WRAP, 1f))
-        val txt = when { !OverlayService.running -> "● READY"; OverlayService.hidden -> "Ⅱ PAUSED"; else -> "● SCANNING" }
-        r.addView(tv(txt, 10f, OK, true).apply {
-            letterSpacing = 0.1f
-            setPadding(dp(10), dp(6), dp(10), dp(6))
-            background = gd(Color.parseColor("#1B281B"), 30, Color.parseColor("#526B3B"))
+
+        val txt = when {
+            !OverlayService.running -> "READY"
+            OverlayService.hidden -> "PAUSED"
+            else -> "SCANNING"
+        }
+        val dot = if (OverlayService.running && !OverlayService.hidden) "● " else "○ "
+        r.addView(tv(dot + txt, 9f, if (OverlayService.running && !OverlayService.hidden) OK else MUT, true).apply {
+            letterSpacing = 0.04f
+            setPadding(dp(10), dp(7), dp(10), dp(7))
+            background = gd(Color.parseColor("#171D19"), 22, LINE)
             setOnClickListener { scanControl() }
+            contentDescription = "Scanner status and controls"
         })
         r.addView(tv(if (tab == 3) "←" else "⚙", 19f, INK, true).apply {
             gravity = Gravity.CENTER
@@ -272,7 +291,7 @@ class MainActivity : ComponentActivity() {
             contentDescription = if (tab == 3) "Back to Home" else "Settings"
             setOnClickListener { tab = if (tab == 3) 0 else 3; content.scrollTo(0, 0); render() }
         })
-        p.addView(r, mtb(0, 26))
+        p.addView(r, mtb(0, 25))
     }
 
     private fun hero(build: LinearLayout.() -> Unit): LinearLayout = col().apply {
