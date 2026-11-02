@@ -6,6 +6,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.asCoroutineDispatcher
 import java.util.concurrent.Executors
 
@@ -89,6 +90,38 @@ object Store {
                 )
             } catch (_: Exception) { }
         }
+    }
+
+    /** Persist a rider decision before the UI reports it as complete. */
+    suspend fun upsertAndAwait(ctx: Context, r: Rec): Boolean = withContext(io) {
+        val updated = synchronized(lock) {
+            val rows = snapshot(ctx).toMutableList()
+            val i = rows.indexOfFirst { it.id == r.id }
+            if (i >= 0) rows[i] = r else rows.add(r)
+            rows.takeLast(3000).also { cachedRows = it }
+        }
+        val s = updated.joinToString("\\n") {
+            String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\\n", " "), it.stops.replace("|", " ").replace("\\n", " "))
+        }
+        val saved = prefs(ctx).edit().putString(KEY, s).commit()
+        if (!saved) return@withContext false
+        try {
+            TrackingDatabase.get(ctx).trackingDao().putOrder(
+                TrackedOrderEntity(
+                    orderId = r.id,
+                    sessionId = TrackingController.activeSessionId(ctx),
+                    word = r.word,
+                    fare = r.fare,
+                    plannedKm = r.km,
+                    rmPerKm = r.rpk,
+                    area = r.area,
+                    stops = r.stops,
+                    scannedAt = r.id,
+                    decision = r.decision
+                )
+            )
+        } catch (_: Exception) { /* SharedPreferences is the primary local record. */ }
+        true
     }
 
     fun delete(ctx: Context, id: Long) {
