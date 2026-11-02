@@ -893,7 +893,7 @@ class OverlayService : Service() {
             setPadding(0, dp(12), 0, dp(2))
         }, matchW())
         box.addView(TextView(this).apply {
-            text = "RM" + f2(v.fare)
+            text = if (v.rpk != null) "RM" + f2(v.rpk) else "SET KM"
             textSize = 42f
             setTextColor(vc)
             setTypeface(typeface, Typeface.BOLD)
@@ -902,7 +902,9 @@ class OverlayService : Service() {
             setPadding(0, dp(10), 0, dp(2))
             maxLines = 1
         }, matchW())
-        box.addView(tv("Estimated total fare · " + drops + " drop-off" + if (drops == 1) "" else "s", 13f, D_MUTED).apply {
+        val counts = pickups.toString() + " pickup" + (if (pickups == 1) "" else "s") +
+            " · " + drops + " drop-off" + (if (drops == 1) "" else "s")
+        box.addView(tv("Fare per km · $counts", 13f, D_MUTED).apply {
             gravity = Gravity.CENTER
             setPadding(0, dp(2), 0, dp(17))
         }, matchW())
@@ -921,7 +923,7 @@ class OverlayService : Service() {
         }
         metricRow.addView(metric(String.format(Locale.US, "%.1f km", v.km), "Total distance"),
             LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginEnd = dp(5) })
-        metricRow.addView(metric("RM" + f2(v.rpk ?: 0.0), "Fare / km"),
+        metricRow.addView(metric("RM" + f2(v.fare), "Total fare"),
             LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginStart = dp(3); marginEnd = dp(3) })
         metricRow.addView(metric(mins.toString() + " min", "Est. duration"),
             LinearLayout.LayoutParams(0, dp(78), 1f).apply { marginStart = dp(5) })
