@@ -94,8 +94,9 @@ object Store {
 
     /** Persist a rider decision before the UI reports it as complete. */
     suspend fun upsertAndAwait(ctx: Context, r: Rec): Boolean = withContext(io) {
+        val previous = snapshot(ctx)
         val updated = synchronized(lock) {
-            val rows = snapshot(ctx).toMutableList()
+            val rows = previous.toMutableList()
             val i = rows.indexOfFirst { it.id == r.id }
             if (i >= 0) rows[i] = r else rows.add(r)
             rows.takeLast(3000).also { cachedRows = it }
@@ -104,7 +105,10 @@ object Store {
             String.format(Locale.US, "%d|%s|%.3f|%.2f|%.1f|%s|%s|%s", it.id, it.word, it.rpk, it.fare, it.km, it.decision, it.area.replace("|", " ").replace("\\n", " "), it.stops.replace("|", " ").replace("\\n", " "))
         }
         val saved = prefs(ctx).edit().putString(KEY, s).commit()
-        if (!saved) return@withContext false
+        if (!saved) {
+            synchronized(lock) { cachedRows = previous }
+            return@withContext false
+        }
         try {
             TrackingDatabase.get(ctx).trackingDao().putOrder(
                 TrackedOrderEntity(
