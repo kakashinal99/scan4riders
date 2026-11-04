@@ -184,6 +184,7 @@ class OverlayService : Service() {
         useBonus = prefs.getBoolean("bonus", false)
         val mpm = getSystemService(MediaProjectionManager::class.java)
         val p = mpm.getMediaProjection(code, data)
+            ?: throw IllegalStateException("Screen capture permission was not granted")
         projection = p
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
@@ -702,6 +703,7 @@ class OverlayService : Service() {
         val area = Store.areaOf(stop?.address.orEmpty())
         val keep = Store.get(this, id)?.decision.orEmpty()
         Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
+        sendBroadcast(Intent(MainActivity.ACTION_ORDERS_UPDATED).setPackage(packageName))
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
