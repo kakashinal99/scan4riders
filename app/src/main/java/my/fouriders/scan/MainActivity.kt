@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 12225)
+Total output lines: 932
+
 package my.fouriders.scan
 
 import android.Manifest
@@ -22,6 +25,10 @@ import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsetsController
+import android.webkit.JavascriptInterface
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -55,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private var per = 0
     private lateinit var content: ScrollView
     private lateinit var navRow: LinearLayout
+    private lateinit var prototype: WebView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,21 +76,36 @@ class MainActivity : ComponentActivity() {
     private fun buildUi() {
         window.statusBarColor = BG
         window.navigationBarColor = BG
-        window.insetsController?.setSystemBarsAppearance(
-            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS,
-            WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS or WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS
-        )
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
+        window.decorView.systemUiVisibility = 0
+        prototype = WebView(this).apply {
             setBackgroundColor(BG)
-            fitsSystemWindows = true
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            settings.allowFileAccess = true
+            settings.allowContentAccess = true
+            webViewClient = object : WebViewClient() {
+                override fun onPageFinished(view: WebView?, url: String?) {
+                    view?.evaluateJavascript("refreshNativeData()", null)
+                }
+            }
+            webChromeClient = WebChromeClient()
+            addJavascriptInterface(AppBridge(), "AndroidBridge")
         }
+        setContentView(prototype)
+        prototype.loadUrl("file:///android_asset/prototype.html")
+    }
+
+    private fun showNativeSettings() {
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
         content = ScrollView(this)
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         root.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         root.addView(navRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
         setContentView(root)
+        tab = 3
         render()
     }
 
@@ -114,7 +137,67 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (::content.isInitialized) render()
+        if (::prototype.isInitialized) prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) }
+    }
+
+    private inner class AppBridge {
+        @JavascriptInterface fun ordersJson(): String {
+            val out = org.json.JSONArray()
+            Store.all(this@MainActivity).sortedByDescending { it.id }.forEach { r ->
+                out.put(org.json.JSONObject().apply {
+                    put("id", r.id); put("w", r.word); put("fare", r.fare); put("km", r.km)
+                    put("d", r.decision); put("area", r.area)
+                    put("st", "P:Pickup details not saved;D:${r.area}")
+                    put("native", true)
+                })
+            }
+            return out.toString()
+        }
+
+        @JavascriptInterface fun scannerJson(): String = org.json.JSONObject().apply {
+            put("running", OverlayService.running); put("hidden", OverlayService.hidden)
+        }.toString()
+
+        @JavascriptInterface fun toggleScanner() {
+            runOnUiThread {
+                if (!OverlayService.running) startFlow()
+                else {
+                    val hide = !OverlayService.hidden
+                    startService(Intent(this@MainActivity, OverlayService::class.java)
+                        .setAction(if (hide) OverlayService.ACTION_HIDE else OverlayService.ACTION_SHOW))
+                    OverlayService.hidden = hide
+                    prototype.evaluateJavascript("refreshNativeData()", null)
+                }
+            }
+        }
+
+        @JavascriptInterface fun openSettings() {
+            runOnUiThread { showNativeSettings() }
+        }
+
+        @JavascriptInterface fun setDecision(id: Long, decision: String) {
+            val r = Store.get(this@MainActivity, id) ?: return
+            val d = when (decision) { "S" -> "S"; "T", "A" -> "T"; else -> "" }
+            Store.upsert(this@MainActivity, r.copy(decision = d))
+        }
+
+        @JavascriptInterface fun deleteOrder(id: Long) { Store.delete(this@MainActivity, id) }
+
+        @JavascriptInterface fun saveOrder(oldId: Long, newId: Long, area: String, fare: Double, km: Double, decision: String) {
+            val rpk = fare / km
+            val rec = Store.get(this@MainActivity, oldId)
+            if (rec != null && oldId != newId) Store.delete(this@MainActivity, oldId)
+            val word = when { fare < 4.0 || rpk < .9 -> "REJECT"; rpk < 1.2 -> "CONSIDER"; else -> "ACCEPT" }
+            val d = when (decision) { "S" -> "S"; "T", "A" -> "T"; else -> "" }
+            Store.upsert(this@MainActivity, Rec(newId, word, rpk, fare, km, area, d))
+        }
+
+        @JavascriptInterface fun setDistance(id: Long, km: Double) {
+            val r = Store.get(this@MainActivity, id) ?: return
+            if (km <= 0.0) return
+            val rate = r.fare / km
+            Store.upsert(this@MainActivity, r.copy(km = km, rpk = rate))
+        }
     }
 
     // ---------- data ----------
@@ -317,6 +400,13 @@ class MainActivity : ComponentActivity() {
     private fun settings(p: LinearLayout) {
         val c = cfg()
         header(p, "Settings", "Scanner and limits")
+        p.addView(Button(this).apply {
+            text = "← Return to 4Riders dashboard"
+            isAllCaps = false
+            setTextColor(BLUE)
+            background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(SOFTBG) }
+            setOnClickListener { setContentView(prototype); prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) } }
+        }, mt(10))
         val on = Settings.canDrawOverlays(this)
         p.addView(sectionLab("Scanner"), mt(16))
         val running = OverlayService.running
@@ -369,30 +459,7 @@ class MainActivity : ComponentActivity() {
         p.addView(stepRow("Fuel cost", "RM per km, estimate", f2(c.getFloat("fuel", 0.14f).toDouble()), { bump("fuel", -0.01f, 0f) }, { bump("fuel", 0.01f, 0f) }))
         p.addView(stepRow("Daily target", "Shown on Today", "RM " + c.getFloat("goal", 200f).toInt(), { bump("goal", -10f, 0f) }, { bump("goal", 10f, 0f) }))
         p.addView(sectionLab("Data"), mt(14))
-        p.addView(tv("Your orders are saved on this phone only. Sync with the 4riders web app is not on yet.", 13f, MUT), mt(6))
-        p.addView(smallLink("Clear all history") {
-            Store.clear(this)
-            toast("History cleared")
-            render()
-        })
-        p.addView(tv("Take and Skip are saved in this app only. Nothing is pressed in Grab. Long press the chip to see the raw text.", 12.5f, MUT), mt(6))
-    }
-
-    private fun wordFor(fare: Double, rpk: Double): String {
-        val c = cfg()
-        return when {
-            fare < c.getFloat("min", 4f) -> "REJECT"
-            rpk < c.getFloat("rej", 0.9f) -> "REJECT"
-            rpk < c.getFloat("ok", 1.2f) -> "CONSIDER"
-            else -> "ACCEPT"
-        }
-    }
-
-    private fun input(v: String, decimal: Boolean) = android.widget.EditText(this).apply {
-        setText(v)
-        textSize = 17f
-        setTextColor(INK)
-        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        p.addView…225 tokens truncated…       typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         if (decimal) inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
         setSelectAllOnFocus(true)
         setPadding(dp(12), 0, dp(12), 0)
