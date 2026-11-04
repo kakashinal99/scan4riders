@@ -1,3 +1,6 @@
+Warning: truncated output (original token count: 13338)
+Total output lines: 1255
+
 package my.fouriders.scan
 
 import android.Manifest
@@ -184,6 +187,7 @@ class OverlayService : Service() {
         useBonus = prefs.getBoolean("bonus", false)
         val mpm = getSystemService(MediaProjectionManager::class.java)
         val p = mpm.getMediaProjection(code, data)
+            ?: throw IllegalStateException("Screen capture permission was not granted")
         projection = p
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
@@ -605,120 +609,7 @@ class OverlayService : Service() {
     private fun showResult() {
         val v = verdict()
         val label = if (v.rpk != null) "${v.word}  ${f2(v.rpk)}/km   ↻" else "${v.word}   ↻"
-        setState(St.RESULT, label, v.color)
-    }
-
-    // ---------- details card ----------
-
-    /** Small traffic light: only the lamp that matches the verdict is lit. */
-    private class Lamp(ctx: Context, val word: String) : View(ctx) {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val d = resources.displayMetrics.density
-        override fun onMeasure(w: Int, h: Int) = setMeasuredDimension((42 * d).toInt(), (112 * d).toInt())
-        override fun onDraw(c: Canvas) {
-            p.color = DARK
-            c.drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), 21 * d, 21 * d, p)
-            val cols = intArrayOf(RED, AMBER, GREEN)
-            val lit = when (word) { "REJECT" -> 0; "CONSIDER" -> 1; "ACCEPT" -> 2; else -> -1 }
-            for (i in 0..2) {
-                val cx = width / 2f
-                val cy = 6 * d + 15 * d + i * 35 * d
-                if (i == lit) {
-                    p.color = cols[i]; p.alpha = 70
-                    c.drawCircle(cx, cy, 19 * d, p)
-                    p.alpha = 255
-                    c.drawCircle(cx, cy, 15 * d, p)
-                } else {
-                    p.color = cols[i]; p.alpha = 56
-                    c.drawCircle(cx, cy, 15 * d, p)
-                    p.alpha = 255
-                }
-            }
-        }
-    }
-
-    /** Your last scans as bars, with this one highlighted. */
-    private class Bars(ctx: Context, val past: List<Double>, val now: Double, val nowColor: Int) : View(ctx) {
-        private val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        private val d = resources.displayMetrics.density
-        override fun onMeasure(w: Int, h: Int) =
-            setMeasuredDimension(MeasureSpec.getSize(w), (86 * d).toInt())
-        override fun onDraw(c: Canvas) {
-            val all = past + now
-            val mx = all.max().coerceAtLeast(0.1)
-            val n = all.size
-            val gap = 8 * d
-            val bw = (width - gap * (n - 1)) / n
-            val top = 20 * d
-            val base = height.toFloat()
-            p.textSize = 11 * d
-            p.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-            p.textAlign = Paint.Align.CENTER
-            for (i in 0 until n) {
-                val h = ((all[i] / mx).toFloat() * (base - top)).coerceAtLeast(6 * d)
-                val x = i * (bw + gap)
-                p.color = if (i == n - 1) nowColor else 0xFF3B5145.toInt()
-                c.drawRoundRect(x, base - h, x + bw, base, 6 * d, 6 * d, p)
-                p.color = 0xFFF4F8F5.toInt()
-                c.drawText(String.format(Locale.US, "%.2f", all[i]), x + bw / 2, base - h - 4 * d, p)
-            }
-        }
-    }
-
-    private class CappedScroll(ctx: Context, val maxH: Int) : ScrollView(ctx) {
-        override fun onMeasure(w: Int, h: Int) =
-            super.onMeasure(w, MeasureSpec.makeMeasureSpec(maxH, MeasureSpec.AT_MOST))
-    }
-
-    // ---------- scan history (so the card can compare this order with your last ones) ----------
-
-    private fun pastScans(): List<Double> =
-        prefs.getString("hist", "").orEmpty().split(",").mapNotNull { it.toDoubleOrNull() }
-
-    private fun record() {
-        val v = verdict()
-        val rpk = v.rpk ?: return
-        val sig = "${Session.fare}|" + Session.stops.values.joinToString(";") { it.name }
-        val oldSig = prefs.getString("curSig", "").orEmpty()
-        if (sig != oldSig) {
-            val oldRpk = prefs.getFloat("curRpk", -1f)
-            val h = pastScans().toMutableList()
-            if (oldSig.isNotEmpty() && oldRpk > 0f) h.add(oldRpk.toDouble())
-            val keep = h.takeLast(5).joinToString(",") { String.format(Locale.US, "%.3f", it) }
-            prefs.edit().putString("hist", keep).putString("curSig", sig).putLong("curId", System.currentTimeMillis()).apply()
-            tookWhat = null
-        }
-        prefs.edit().putFloat("curRpk", rpk.toFloat()).apply()
-        saveRec(null)
-    }
-
-    /** Saves this order to the phone's history. decision: null keeps what was chosen, "" clears it. */
-    private fun saveRec(decision: String?) {
-        val v = verdict()
-        val rpk = v.rpk ?: return
-        val id = prefs.getLong("curId", 0L)
-        if (id == 0L) return
-        val stop = Session.stops.values.firstOrNull { it.collect } ?: Session.stops.values.firstOrNull()
-        val area = Store.areaOf(stop?.address.orEmpty())
-        val keep = Store.get(this, id)?.decision.orEmpty()
-        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
-    }
-
-    private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
-        val rpk = v.rpk ?: return null
-        if (v.fare < minFare) return "Below the RM${f2(minFare)} minimum fare."
-        if (v.word == "ACCEPT") {
-            val spare = v.fare / ok - v.km
-            return "Safe. It stays ACCEPT up to ${String.format(Locale.US, "%.1f", max(0.0, spare))} km more."
-        }
-        val tgt = if (v.word == "REJECT") rej else ok
-        val to = if (v.word == "REJECT") "CONSIDER" else "ACCEPT"
-        val more = tgt * v.km - v.fare
-        val less = v.km - v.fare / tgt
-        return "+RM ${f2(max(0.0, more))} or ${String.format(Locale.US, "%.1f", max(0.0, less))} km shorter turns it to $to."
-    }
-
-    private fun tv(text: String, size: Float, color: Int, bold: Boolean = false): TextView = TextView(this).apply {
+        setState…1338 tokens truncated…his).apply {
         this.text = text
         textSize = size
         setTextColor(color)
