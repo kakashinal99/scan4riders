@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 12225)
-Total output lines: 932
-
 package my.fouriders.scan
 
 import android.Manifest
@@ -9,7 +6,9 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Canvas
 import android.graphics.Color
@@ -43,6 +42,7 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
 
     companion object {
+        internal const val ACTION_ORDERS_UPDATED = "my.fouriders.scan.ORDERS_UPDATED"
         private val BG = Color.parseColor("#0C1110")
         private val INK = Color.parseColor("#F4F7F5")
         private val MUT = Color.parseColor("#8E9B95")
@@ -63,9 +63,19 @@ class MainActivity : ComponentActivity() {
     private lateinit var content: ScrollView
     private lateinit var navRow: LinearLayout
     private lateinit var prototype: WebView
+    private val orderUpdateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (::prototype.isInitialized) {
+                prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) }
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val filter = IntentFilter(ACTION_ORDERS_UPDATED)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(orderUpdateReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(orderUpdateReceiver, filter)
         val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("trace", null)
         if (crash != null) showCrash(crash) else buildUi()
     }
@@ -138,6 +148,11 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::prototype.isInitialized) prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) }
+    }
+
+    override fun onDestroy() {
+        try { unregisterReceiver(orderUpdateReceiver) } catch (_: IllegalArgumentException) { }
+        super.onDestroy()
     }
 
     private inner class AppBridge {
@@ -459,7 +474,30 @@ class MainActivity : ComponentActivity() {
         p.addView(stepRow("Fuel cost", "RM per km, estimate", f2(c.getFloat("fuel", 0.14f).toDouble()), { bump("fuel", -0.01f, 0f) }, { bump("fuel", 0.01f, 0f) }))
         p.addView(stepRow("Daily target", "Shown on Today", "RM " + c.getFloat("goal", 200f).toInt(), { bump("goal", -10f, 0f) }, { bump("goal", 10f, 0f) }))
         p.addView(sectionLab("Data"), mt(14))
-        p.addView…225 tokens truncated…       typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
+        p.addView(tv("Your orders are saved on this phone only. Sync with the 4riders web app is not on yet.", 13f, MUT), mt(6))
+        p.addView(smallLink("Clear all history") {
+            Store.clear(this)
+            toast("History cleared")
+            render()
+        })
+        p.addView(tv("Take and Skip are saved in this app only. Nothing is pressed in Grab. Long press the chip to see the raw text.", 12.5f, MUT), mt(6))
+    }
+
+    private fun wordFor(fare: Double, rpk: Double): String {
+        val c = cfg()
+        return when {
+            fare < c.getFloat("min", 4f) -> "REJECT"
+            rpk < c.getFloat("rej", 0.9f) -> "REJECT"
+            rpk < c.getFloat("ok", 1.2f) -> "CONSIDER"
+            else -> "ACCEPT"
+        }
+    }
+
+    private fun input(v: String, decimal: Boolean) = android.widget.EditText(this).apply {
+        setText(v)
+        textSize = 17f
+        setTextColor(INK)
+        typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         if (decimal) inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
         setSelectAllOnFocus(true)
         setPadding(dp(12), 0, dp(12), 0)
