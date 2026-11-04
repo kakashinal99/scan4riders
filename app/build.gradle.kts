@@ -6,14 +6,15 @@ plugins {
 
 android {
     namespace = "my.fouriders.scan"
-    compileSdk = 34
+    compileSdk = 37
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         applicationId = "my.fouriders.scan"
         minSdk = 30
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.1"
+        versionCode = 14
+        versionName = "1.3"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
