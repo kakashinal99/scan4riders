@@ -10,6 +10,12 @@ const PHOTON_API = 'https://photon.komoot.io/api/';
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string };
+type NamedBuildingFeature = {
+  type: 'Feature';
+  geometry: { type: 'Polygon'; coordinates: [number, number][][] };
+  properties: { name: string; osmId: number; buildingType: string };
+};
+type NamedBuildingCollection = { type: 'FeatureCollection'; features: NamedBuildingFeature[] };
 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -18,12 +24,79 @@ export default function App() {
   const [expanded, setExpanded] = useState(false);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
+  const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
+  const namedBuildingsAbort = useRef<AbortController | null>(null);
+  const namedBuildingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoad, setSelectedRoad] = useState<RoadSelection | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchFeature[]>([]);
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState('Loading Klang Valley map…');
   const [centerLabel, setCenterLabel] = useState('Klang Valley');
+
+  const loadNamedBuildings = async (map: MapLibreMap) => {
+    if (map.getZoom() < 15) {
+      const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
+      source?.setData({ type: 'FeatureCollection', features: [] });
+      setNamedBuildingCount(null);
+      return;
+    }
+    const bounds = map.getBounds();
+    const west = bounds.getWest(), south = bounds.getSouth();
+    const east = bounds.getEast(), north = bounds.getNorth();
+    // Keep public Overpass requests focused on the visible street-level viewport.
+    if ((east - west) * (north - south) > 0.012) return;
+    namedBuildingsAbort.current?.abort();
+    const controller = new AbortController();
+    namedBuildingsAbort.current = controller;
+    const bbox = [south, west, north, east].map((value) => value.toFixed(5)).join(',');
+    const queryText = `[out:json][timeout:20];way["building"]["name"](${bbox});out geom;`;
+    try {
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: `data=${encodeURIComponent(queryText)}`,
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error('Named building query failed');
+      const payload = await response.json() as {
+        elements?: Array<{
+          type: string; id: number; tags?: Record<string, string>;
+          geometry?: Array<{ lon: number; lat: number }>;
+        }>;
+      };
+      const features: NamedBuildingFeature[] = (payload.elements ?? [])
+        .filter((element) => element.type === 'way' && element.tags?.name && element.geometry && element.geometry.length >= 4)
+        .map((element) => {
+          const ring = (element.geometry ?? []).map((point) => [point.lon, point.lat] as [number, number]);
+          const first = ring[0], last = ring[ring.length - 1];
+          if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
+          return {
+            type: 'Feature' as const,
+            geometry: { type: 'Polygon' as const, coordinates: [ring] },
+            properties: {
+              name: element.tags?.name ?? 'Unnamed building',
+              osmId: element.id,
+              buildingType: element.tags?.building ?? 'yes'
+            }
+          };
+        });
+      if (controller.signal.aborted) return;
+      const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
+      source?.setData({ type: 'FeatureCollection', features } as NamedBuildingCollection);
+      setNamedBuildingCount(features.length);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        console.warn('[4Riders named buildings]', error);
+        setNamedBuildingCount(null);
+      }
+    }
+  };
+
+  const scheduleNamedBuildings = (map: MapLibreMap) => {
+    if (namedBuildingsTimer.current) clearTimeout(namedBuildingsTimer.current);
+    namedBuildingsTimer.current = setTimeout(() => { void loadNamedBuildings(map); }, 850);
+  };
 
   useEffect(() => {
     const container = mapNode.current;
@@ -122,6 +195,54 @@ export default function App() {
         });
         count++;
       }
+      // Named building footprints come from live OSM geometry, not unsupported tile labels.
+      // Labels are rendered over the polygon itself and only requested at street-level zoom.
+      if (!map.getSource('4r-named-buildings')) {
+        map.addSource('4r-named-buildings', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+      }
+      if (!map.getLayer('4r-named-building-fill')) {
+        map.addLayer({
+          id: '4r-named-building-fill',
+          type: 'fill',
+          source: '4r-named-buildings',
+          minzoom: 15,
+          paint: { 'fill-color': '#806b98', 'fill-opacity': 0.24 }
+        });
+        map.addLayer({
+          id: '4r-named-building-outline',
+          type: 'line',
+          source: '4r-named-buildings',
+          minzoom: 15,
+          paint: { 'line-color': '#cdb5e7', 'line-width': 1.15, 'line-opacity': 0.95 }
+        });
+        map.addLayer({
+          id: '4r-named-building-labels',
+          type: 'symbol',
+          source: '4r-named-buildings',
+          minzoom: 15,
+          layout: {
+            'symbol-placement': 'point',
+            'text-field': ['get', 'name'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 15, 9, 18, 12],
+            'text-max-width': 11,
+            'text-padding': 2,
+            'text-allow-overlap': false,
+            'text-ignore-placement': false
+          },
+          paint: {
+            'text-color': '#f5eafc',
+            'text-halo-color': '#211a2a',
+            'text-halo-width': 1.5
+          }
+        });
+      }
+      scheduleNamedBuildings(map);
+      map.on('moveend', () => scheduleNamedBuildings(map));
+
       // Road inspection reads only attributes actually supplied by the vector tile.
       map.on('click', (event) => {
         const roadLayerIds = (map.getStyle().layers ?? [])
@@ -296,9 +417,9 @@ export default function App() {
           <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
           <div className="detail-row"><span>Vector map source</span><b>OpenFreeMap</b></div>
           <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
-          <div className="detail-row"><span>Building names</span><b>Needs a separate named-building data layer</b></div>
+          <div className="detail-row"><span>Named building footprints</span><b>{namedBuildingCount === null ? 'Zoom to street level to load' : namedBuildingCount.toLocaleString()}</b></div>
           <div className="detail-row"><span>Road direction</span><b>OSM oneway attribute where available</b></div>
-          <div className="pilot-note"><b>Current milestone</b><p>Establish a reliable, zoomable Klang Valley base map. Tap roads to inspect mapped direction and access data. Lane counts and building-name placement need richer source data; no missing attributes are guessed.</p></div>
+          <div className="pilot-note"><b>Current milestone</b><p>Named building footprints and labels are fetched from OpenStreetMap at street-level zoom. Coverage depends on mapped OSM building names; lane counts still need a richer road-data source.</p></div>
         </div>}
         <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
       </section>
