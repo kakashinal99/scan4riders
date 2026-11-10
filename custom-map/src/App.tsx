@@ -13,7 +13,7 @@ const pmtilesProtocol = new Protocol();
 maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 const PHOTON_API = 'https://photon.komoot.io/api/';
 const VALHALLA_ISODISTANCE_API = 'https://valhalla1.openstreetmap.de/isochrone';
-const MERCHANT_SQUARE: [number, number] = [101.5982, 3.1339];
+
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
@@ -43,6 +43,15 @@ export default function App() {
   const [centerLabel, setCenterLabel] = useState('Klang Valley');
   const [reachStatus, setReachStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [reachMessage, setReachMessage] = useState('');
+  const [coverageSettingsOpen, setCoverageSettingsOpen] = useState(false);
+  const [coverageRadius, setCoverageRadius] = useState(30);
+  const [coverageCenter, setCoverageCenter] = useState<[number, number]>(KLANG_VALLEY_CENTER);
+  const [coverageCenterLabel, setCoverageCenterLabel] = useState('Klang Valley default center');
+  const [pickingCoverageCenter, setPickingCoverageCenter] = useState(false);
+  const pickingCoverageCenterRef = useRef(false);
+  const coverageCenterRef = useRef<[number, number]>(KLANG_VALLEY_CENTER);
+  useEffect(() => { pickingCoverageCenterRef.current = pickingCoverageCenter; }, [pickingCoverageCenter]);
+  useEffect(() => { coverageCenterRef.current = coverageCenter; }, [coverageCenter]);
 
   const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
     roadLookupAbort.current?.abort();
@@ -356,6 +365,18 @@ export default function App() {
 
       // Road inspection reads only attributes actually supplied by the vector tile.
       map.on('click', (event) => {
+        if (pickingCoverageCenterRef.current) {
+          const nextCenter: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+          coverageCenterRef.current = nextCenter;
+          setCoverageCenter(nextCenter);
+          setCoverageCenterLabel(`${event.lngLat.lat.toFixed(5)}, ${event.lngLat.lng.toFixed(5)}`);
+          setPickingCoverageCenter(false);
+          setCoverageSettingsOpen(true);
+          setReachStatus('idle');
+          setReachMessage('Center updated. Recalculate to refresh the road coverage.');
+          setMessage('Coverage center selected on map');
+          return;
+        }
         const roadLayerIds = (map.getStyle().layers ?? [])
           .filter((layer) => layer.type === 'line' && (layer.id.toLowerCase().includes('transportation') || layer.id.toLowerCase().includes('road')))
           .map((layer) => layer.id);
@@ -476,14 +497,14 @@ export default function App() {
     const map = mapRef.current;
     if (!map || reachStatus === 'loading') return;
     setReachStatus('loading');
-    setReachMessage('Calculating 30 km through the motorcycle road network…');
+    setReachMessage(`Calculating ${coverageRadius} km through the motorcycle road network…`);
     setMessage('Calculating real road-distance coverage…');
     try {
       const requestBody = {
-        locations: [{ lat: MERCHANT_SQUARE[1], lon: MERCHANT_SQUARE[0] }],
+        locations: [{ lat: coverageCenter[1], lon: coverageCenter[0] }],
         costing: 'motorcycle',
         costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
-        contours: [{ distance: 30, color: 'b58ad8' }],
+        contours: [{ distance: coverageRadius, color: 'b58ad8' }],
         polygons: true,
         denoise: 0.1,
         generalize: 35,
@@ -506,7 +527,7 @@ export default function App() {
         type: 'FeatureCollection' as const,
         features: [
           ...polygonFeatures,
-          { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: MERCHANT_SQUARE }, properties: { label: 'MERCHANT SQUARE · START' } }
+          { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: coverageCenter }, properties: { label: 'COVERAGE CENTER' } }
         ]
       };
       const source = map.getSource('4r-road-reach') as maplibregl.GeoJSONSource | undefined;
@@ -523,8 +544,8 @@ export default function App() {
         map.fitBounds(bounds, { padding: { top: 115, right: 70, bottom: 250, left: 55 }, maxZoom: 11.7, duration: 1100 });
       }
       setReachStatus('ready');
-      setReachMessage('30 km road-distance boundary loaded · motorcycle profile');
-      setCenterLabel('30 km road coverage · Merchant Square');
+      setReachMessage(`${coverageRadius} km road-distance boundary loaded · motorcycle profile`);
+      setCenterLabel(`${coverageRadius} km road coverage · ${coverageCenterLabel}`);
       setMessage('Coverage follows connected roads, not a straight-line circle');
     } catch (error) {
       console.error('[4Riders road-distance coverage]', error);
@@ -561,11 +582,25 @@ export default function App() {
         {results.length > 0 && <div className="search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => chooseResult(feature)}><MapPin size={15}/><span><b>{feature.properties.name || 'Unnamed place'}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(', ')}</small></span></button>)}</div>}
       </form>
 
-      <div className="map-actions">        <button className={reachStatus === 'ready' ? 'map-action reach-active' : 'map-action reach-action'} onClick={calculateRoadReach} disabled={reachStatus === 'loading'} aria-label="Calculate 30 kilometre road coverage"><MapPin size={18}/><span>{reachStatus === 'loading' ? 'Calculating…' : '30 km Road'}</span></button>
+      <div className="map-actions">
+        <button className="map-action" onClick={() => setCoverageSettingsOpen((open) => !open)} aria-expanded={coverageSettingsOpen}><Crosshair size={18}/><span>Coverage Settings</span></button>
+        <button className={reachStatus === 'ready' ? 'map-action reach-active' : 'map-action reach-action'} onClick={calculateRoadReach} disabled={reachStatus === 'loading'} aria-label={`Calculate ${coverageRadius} kilometre road coverage`}><MapPin size={18}/><span>{reachStatus === 'loading' ? 'Calculating…' : `${coverageRadius} km Road`}</span></button>
 
         <button className={buildingsOn ? 'map-action active' : 'map-action'} onClick={toggleBuildings} aria-label="Toggle building footprints"><Layers3 size={18}/><span>Buildings</span></button>
         <button className="map-action locate-action" onClick={locateMe} aria-label="Find my location"><Crosshair size={19}/></button>
       </div>
+      {coverageSettingsOpen && <section className="coverage-settings">
+        <div className="coverage-settings-heading"><b>ROAD COVERAGE SETTINGS</b><button onClick={() => setCoverageSettingsOpen(false)} aria-label="Close coverage settings"><X size={15}/></button></div>
+        <span className="coverage-setting-label">CENTER POINT</span>
+        <strong className="coverage-center-name">{coverageCenterLabel}</strong>
+        <small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small>
+        <button className={pickingCoverageCenter ? 'coverage-pick active' : 'coverage-pick'} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? 'Tap the map to set center…' : 'Choose center on map'}</button>
+        <span className="coverage-setting-label">ROAD DISTANCE · KM</span>
+        <div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /><input type="range" min="5" max="50" step="1" value={Math.min(50, coverageRadius)} onChange={(event) => setCoverageRadius(Number(event.target.value))} /></div>
+        <div className="coverage-presets">{[10, 15, 20, 25, 30, 40, 50].map((value) => <button key={value} className={coverageRadius === value ? 'selected' : ''} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div>
+        <button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === 'loading'}>{reachStatus === 'loading' ? 'Calculating…' : 'Apply & calculate coverage'}</button>
+        <small className="coverage-footnote">Uses motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>
+      </section>}
       <button className="home-control" onClick={goHome}><MapPin size={15}/> Klang Valley</button>
 
       <section className={expanded ? 'bottom-sheet expanded' : 'bottom-sheet'}>
