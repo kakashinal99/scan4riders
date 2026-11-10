@@ -26,6 +26,7 @@ export default function App() {
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
   const namedBuildingsAbort = useRef<AbortController | null>(null);
+  const roadLookupAbort = useRef<AbortController | null>(null);
   const namedBuildingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoad, setSelectedRoad] = useState<RoadSelection | null>(null);
   const [query, setQuery] = useState('');
@@ -33,6 +34,68 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState('Loading Klang Valley map…');
   const [centerLabel, setCenterLabel] = useState('Klang Valley');
+
+  const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
+    roadLookupAbort.current?.abort();
+    const controller = new AbortController();
+    roadLookupAbort.current = controller;
+    const queryText = `[out:json][timeout:15];way(around:25,${lat.toFixed(6)},${lng.toFixed(6)})["highway"];out tags geom;`;
+    try {
+      const response = await fetch('https://overpass-api.de/api/interpreter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+        body: `data=${encodeURIComponent(queryText)}`,
+        signal: controller.signal
+      });
+      if (!response.ok) throw new Error('Road tag query failed');
+      const payload = await response.json() as {
+        elements?: Array<{ tags?: Record<string, string>; geometry?: Array<{ lon: number; lat: number }> }>;
+      };
+      const candidates = (payload.elements ?? []).filter((item) => item.geometry && item.geometry.length > 1);
+      const namedCandidates = candidates.filter((item) => roadName !== 'Jalan tanpa nama' && item.tags?.name === roadName);
+      const pool = namedCandidates.length ? namedCandidates : candidates;
+      const distanceToRoad = (geometry: Array<{ lon: number; lat: number }>) => {
+        const cosLat = Math.cos(lat * Math.PI / 180);
+        let minimum = Number.POSITIVE_INFINITY;
+        for (let i = 1; i < geometry.length; i++) {
+          const ax = (geometry[i - 1].lon - lng) * 111320 * cosLat;
+          const ay = (geometry[i - 1].lat - lat) * 110540;
+          const bx = (geometry[i].lon - lng) * 111320 * cosLat;
+          const by = (geometry[i].lat - lat) * 110540;
+          const dx = bx - ax, dy = by - ay;
+          const lengthSquared = dx * dx + dy * dy;
+          const t = lengthSquared === 0 ? 0 : Math.max(0, Math.min(1, -(ax * dx + ay * dy) / lengthSquared));
+          minimum = Math.min(minimum, Math.hypot(ax + t * dx, ay + t * dy));
+        }
+        return minimum;
+      };
+      const nearest = pool
+        .map((item) => ({ item, distance: distanceToRoad(item.geometry ?? []) }))
+        .sort((a, b) => a.distance - b.distance)[0]?.item;
+      if (controller.signal.aborted) return;
+      const tags = nearest?.tags ?? {};
+      const laneTag = tags.lanes;
+      const laneText = laneTag ? `${laneTag} lane${laneTag === '1' ? '' : 's'}` : 'Not tagged in OpenStreetMap';
+      const oneWay = tags.oneway;
+      const direction = oneWay === 'yes' || oneWay === '1' || oneWay === 'true'
+        ? 'Sehala · ikut arah OSM'
+        : oneWay === '-1'
+          ? 'Sehala · arah songsang OSM'
+          : oneWay === 'no' || oneWay === '0'
+            ? 'Dua hala · OSM'
+            : null;
+      setSelectedRoad((current) => current?.selectionKey === selectionKey
+        ? { ...current, lanes: laneText, direction: direction ?? current.direction }
+        : current);
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        console.warn('[4Riders road tags]', error);
+        setSelectedRoad((current) => current?.selectionKey === selectionKey
+          ? { ...current, lanes: 'OSM lookup unavailable' }
+          : current);
+      }
+    }
+  };
 
   const loadNamedBuildings = async (map: MapLibreMap) => {
     if (map.getZoom() < 15) {
@@ -266,7 +329,10 @@ export default function App() {
           oneWayValue === 0 ? 'Dua hala' : 'Maklumat arah tiada';
         const className = String(props.class ?? 'road').replaceAll('_', ' ');
         const displayName = String(label?.name || label?.ref || props.name || props.ref || 'Jalan tanpa nama');
+        const selectionKey = `${event.lngLat.lng.toFixed(5)}:${event.lngLat.lat.toFixed(5)}`;
         setSelectedRoad({
+          selectionKey,
+          lanes: 'Checking OpenStreetMap…',
           name: displayName,
           roadClass: className,
           direction,
@@ -274,6 +340,7 @@ export default function App() {
           access: String(props.access ?? 'Tiada sekatan direkodkan'),
           structure: String(props.brunnel ?? 'Permukaan biasa')
         });
+        void lookupRoadTags(event.lngLat.lng, event.lngLat.lat, displayName, selectionKey);
       });
       setMessage(count ? 'Map data loaded · tap a road to inspect direction' : 'Map loaded · building layer not detected in this style');
       setReady(true);
@@ -405,7 +472,7 @@ export default function App() {
             <div><span>Surface</span><b>{selectedRoad.surface}</b></div>
             <div><span>Access</span><b>{selectedRoad.access}</b></div>
             <div><span>Structure</span><b>{selectedRoad.structure}</b></div>
-            <div><span>Lane count</span><b>Not exposed by current tiles</b></div>
+            <div><span>Lane count</span><b>{selectedRoad.lanes}</b></div>
           </div>
         </div>}
         <div className="quick-stats">
@@ -418,7 +485,8 @@ export default function App() {
           <div className="detail-row"><span>Vector map source</span><b>OpenFreeMap</b></div>
           <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
           <div className="detail-row"><span>Named building footprints</span><b>{namedBuildingCount === null ? 'Zoom to street level to load' : namedBuildingCount.toLocaleString()}</b></div>
-          <div className="detail-row"><span>Road direction</span><b>OSM oneway attribute where available</b></div>
+          <div className="detail-row"><span>Road direction</span><b>Vector tile + raw OSM tags where available</b></div>
+          <div className="detail-row"><span>Lane data</span><b>Raw OSM lanes tag when mapped; otherwise marked unavailable</b></div>
           <div className="pilot-note"><b>Current milestone</b><p>Named building footprints and labels are fetched from OpenStreetMap at street-level zoom. Coverage depends on mapped OSM building names; lane counts still need a richer road-data source.</p></div>
         </div>}
         <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
