@@ -12,6 +12,9 @@ on:
     paths:
       - "custom-map/**"
       - ".github/workflows/custom-map-build.yml"
+  workflow_dispatch:
+  schedule:
+    - cron: "20 2 1 * *"
 
 jobs:
   build:
@@ -32,3 +35,29 @@ jobs:
         run: npm install
       - name: Type-check and production build
         run: npm run build
+
+  build-klang-valley-data:
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout standalone map project
+        uses: actions/checkout@v4
+      - name: Install Osmium Tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+      - name: Build and verify PMTiles
+        working-directory: custom-map/data-pipeline
+        run: |
+          chmod +x build.sh
+          ./build.sh
+      - name: Upload versioned map archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: klang-valley-map-${{ github.run_id }}
+          path: |
+            custom-map/data-pipeline/output/klang-valley-basemap.pmtiles
+            custom-map/data-pipeline/output/manifest.json
+          if-no-files-found: error
+          retention-days: 30
