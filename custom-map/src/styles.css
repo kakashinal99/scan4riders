@@ -50,3 +50,6 @@
 .coverage-apply:disabled{opacity:.6}
 .coverage-footnote{display:block;margin-top:9px;color:#9990a4;font-size:9px;line-height:1.45}
 @media(min-width:760px){.coverage-settings{top:204px;right:28px}}
+
+/* Keep the map information panel dismissible on small screens. */
+.sheet-controls{display:flex;align-items:center;gap:7px;flex-shrink:0}.sheet-minimize{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff1c;border-radius:12px;background:#ffffff09;color:#d8cbe6}.bottom-sheet.collapsed{max-height:54px!important;min-height:54px;padding-top:7px;padding-bottom:7px;overflow:hidden}.bottom-sheet.collapsed .sheet-heading,.bottom-sheet.collapsed .reach-note,.bottom-sheet.collapsed .road-inspector,.bottom-sheet.collapsed .quick-stats,.bottom-sheet.collapsed .sheet-details,.bottom-sheet.collapsed .sheet-footer{display:none}.bottom-sheet.collapsed .sheet-handle{height:38px;display:flex;align-items:center;justify-content:center;gap:10px;color:#cfc2dc}.bottom-sheet.collapsed .sheet-handle::after{content:'MAP AREA · TAP TO OPEN';font-size:10px;font-weight:800;letter-spacing:1.2px}.bottom-sheet.collapsed .sheet-handle span{margin:0;width:24px}
