@@ -281,7 +281,7 @@ export default function RoutePlanner({ map }: Props) {
       </ol>}
       {summary && <button type="button" className="route-go" onClick={startNavigation}>{navigating ? 'Stop navigation' : 'Start navigation'}</button>}
       {navigating && <p className="route-status" aria-live="polite">{navigationMessage}</p>}
-      {summary && <button type="button" className="route-clear" onClick={clearRoute}>Clear route</button>
+      {summary && <button type="button" className="route-clear" onClick={clearRoute}>Clear route</button>}
       <small className="route-disclaimer">Motorcycle routing · active GPS guidance · off-route recalculation · no live traffic</small>
     </section>
   );
