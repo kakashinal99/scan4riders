@@ -23,9 +23,11 @@ export default function App() {
   const [centerLabel, setCenterLabel] = useState('Batu Tiga, Shah Alam');
 
   useEffect(() => {
-    if (!mapNode.current || mapRef.current) return;
+    const container = mapNode.current;
+    if (!container || mapRef.current) return;
+
     const map = new maplibregl.Map({
-      container: mapNode.current,
+      container,
       style: MAP_STYLE,
       center: BATU_TIGA,
       zoom: 15.8,
@@ -34,11 +36,20 @@ export default function App() {
       attributionControl: false,
       pitchWithRotate: false,
       dragRotate: false,
-      touchPitch: false
+      touchPitch: false,
+      trackResize: true
     });
     mapRef.current = map;
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+    // Mobile browsers can report an incomplete container size on first paint.
+    // Observe the actual map element and explicitly resize after layout settles.
+    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver.observe(container);
+    requestAnimationFrame(() => map.resize());
+
     map.on('load', () => {
+      requestAnimationFrame(() => map.resize());
       const layers = map.getStyle().layers ?? [];
       let count = 0;
       layers.forEach((layer) => {
@@ -73,11 +84,18 @@ export default function App() {
       setReady(true);
       refreshBuildingCount(map);
     });
-    map.on('moveend', () => refreshBuildingCount(map));
     map.on('error', (event) => {
-      if (!ready && event.error) setMessage('Map source is taking longer than expected. Check connection.');
+      if (event.error) {
+        console.error('[4Riders map]', event.error);
+        setMessage('Map data error · check tile connection');
+      }
     });
-    return () => { map.remove(); mapRef.current = null; };
+
+    return () => {
+      resizeObserver.disconnect();
+      map.remove();
+      mapRef.current = null;
+    };
   }, []);
 
   const refreshBuildingCount = (map: MapLibreMap) => {
@@ -87,6 +105,14 @@ export default function App() {
       setBuildingCount(map.queryRenderedFeatures({ layers }).length);
     } catch { setBuildingCount(null); }
   };
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    const update = () => refreshBuildingCount(map);
+    map.on('moveend', update);
+    return () => { map.off('moveend', update); };
+  }, [ready]);
 
   const goHome = useCallback(() => {
     mapRef.current?.flyTo({ center: BATU_TIGA, zoom: 16.2, duration: 850 });
