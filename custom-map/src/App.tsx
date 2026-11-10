@@ -196,7 +196,8 @@ export default function App() {
         return;
       }
       if (disposed || !map) return;
-    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+      const activeMap = map;
+    activeMap.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     // Mobile browsers can report an incomplete container size on first paint.
     // Observe the actual map element and explicitly resize after layout settles.
@@ -204,16 +205,16 @@ export default function App() {
     resizeObserver.observe(container);
     requestAnimationFrame(() => map?.resize());
 
-    map.on('load', () => {
+    activeMap.on('load', () => {
       requestAnimationFrame(() => map?.resize());
-      const layers = map.getStyle().layers ?? [];
+      const layers = activeMap.getStyle().layers ?? [];
       let count = 0;
       // Keep the road hierarchy legible and visually distinct at every useful zoom.
       layers.forEach((layer) => {
         const id = layer.id.toLowerCase();
         if (layer.type !== 'line' || !(id.includes('transportation') || id.includes('road'))) return;
         try {
-          map.setPaintProperty(layer.id, 'line-color', [
+          activeMap.setPaintProperty(layer.id, 'line-color', [
             'match', ['get', 'class'],
             'motorway', '#d8a4c8', 'trunk', '#c59acb',
             'primary', '#e0bd91', 'secondary', '#d2c49c',
@@ -227,19 +228,19 @@ export default function App() {
         if (!layer.id.toLowerCase().includes('building')) return;
         count++;
         if (layer.type === 'fill') {
-          map.setPaintProperty(layer.id, 'fill-color', '#76658f');
-          map.setPaintProperty(layer.id, 'fill-opacity', 0.82);
-          map.setPaintProperty(layer.id, 'fill-outline-color', '#b9a5cd');
+          activeMap.setPaintProperty(layer.id, 'fill-color', '#76658f');
+          activeMap.setPaintProperty(layer.id, 'fill-opacity', 0.82);
+          activeMap.setPaintProperty(layer.id, 'fill-outline-color', '#b9a5cd');
         }
         if (layer.type === 'line') {
-          map.setPaintProperty(layer.id, 'line-color', '#b4a2c8');
-          map.setPaintProperty(layer.id, 'line-opacity', 0.8);
+          activeMap.setPaintProperty(layer.id, 'line-color', '#b4a2c8');
+          activeMap.setPaintProperty(layer.id, 'line-opacity', 0.8);
         }
       });
       // OpenMapTiles transportation schema exposes oneway=1/-1. Draw arrows only
       // where direction is explicitly present; never infer direction from road class.
-      if (map.getSource('openmaptiles') && !map.getLayer('4r-road-direction-arrows')) {
-        map.addLayer({
+      if (activeMap.getSource('openmaptiles') && !activeMap.getLayer('4r-road-direction-arrows')) {
+        activeMap.addLayer({
           id: '4r-road-direction-arrows',
           type: 'symbol',
           source: 'openmaptiles',
@@ -259,8 +260,8 @@ export default function App() {
           paint: { 'text-color': '#f2d8ff', 'text-halo-color': '#30263b', 'text-halo-width': 1.4 }
         });
       }
-      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-outlines')) {
-        map.addLayer({
+      if (activeMap.getSource('openmaptiles') && !activeMap.getLayer('4r-building-outlines')) {
+        activeMap.addLayer({
           id: '4r-building-outlines',
           type: 'line',
           source: 'openmaptiles',
@@ -277,8 +278,8 @@ export default function App() {
       // Building names are rendered directly from the vector-tile building
       // layer. When PMTiles is enabled, geometry and names are served from our
       // Klang Valley archive rather than live Overpass queries.
-      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
-        map.addLayer({
+      if (activeMap.getSource('openmaptiles') && !activeMap.getLayer('4r-building-name-labels')) {
+        activeMap.addLayer({
           id: '4r-building-name-labels',
           type: 'symbol',
           source: 'openmaptiles',
@@ -303,26 +304,26 @@ export default function App() {
         });
       }
       // Road-distance coverage overlay, calculated from the actual OSM road graph.
-      map.addSource('4r-road-reach', {
+      activeMap.addSource('4r-road-reach', {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
-      map.addLayer({
+      activeMap.addLayer({
         id: '4r-road-reach-fill', type: 'fill', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'fill-color': '#b58ad8', 'fill-opacity': 0.22 }
       });
-      map.addLayer({
+      activeMap.addLayer({
         id: '4r-road-reach-outline', type: 'line', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Polygon'],
         paint: { 'line-color': '#d8b5f4', 'line-width': 3, 'line-opacity': 0.95 }
       });
-      map.addLayer({
+      activeMap.addLayer({
         id: '4r-road-reach-origin', type: 'circle', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Point'],
         paint: { 'circle-radius': 7, 'circle-color': '#f4d27b', 'circle-stroke-color': '#211a2a', 'circle-stroke-width': 2.5 }
       });
-      map.addLayer({
+      activeMap.addLayer({
         id: '4r-road-reach-origin-label', type: 'symbol', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Point'],
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': true },
@@ -330,7 +331,7 @@ export default function App() {
       });
 
       // Road inspection reads only attributes actually supplied by the vector tile.
-      map.on('click', (event) => {
+      activeMap.on('click', (event) => {
         if (pickingCoverageCenterRef.current) {
           const nextCenter: [number, number] = [event.lngLat.lng, event.lngLat.lat];
           coverageCenterRef.current = nextCenter;
@@ -343,7 +344,7 @@ export default function App() {
           setMessage('Coverage center selected on map');
           return;
         }
-        const roadLayerIds = (map.getStyle().layers ?? [])
+        const roadLayerIds = (activeMap.getStyle().layers ?? [])
           .filter((layer) => layer.type === 'line' && (layer.id.toLowerCase().includes('transportation') || layer.id.toLowerCase().includes('road')))
           .map((layer) => layer.id);
         if (!roadLayerIds.length) { setSelectedRoad(null); return; }
@@ -352,11 +353,11 @@ export default function App() {
           [event.point.x - pad, event.point.y - pad],
           [event.point.x + pad, event.point.y + pad]
         ];
-        const candidates = map.queryRenderedFeatures(box, { layers: roadLayerIds });
+        const candidates = activeMap.queryRenderedFeatures(box, { layers: roadLayerIds });
         const road = candidates.find((feature) => feature.sourceLayer === 'transportation') ?? candidates[0];
         if (!road) { setSelectedRoad(null); return; }
         const props = road.properties ?? {};
-        const nearbyLabels = map.queryRenderedFeatures(box).filter((feature) => feature.sourceLayer === 'transportation_name');
+        const nearbyLabels = activeMap.queryRenderedFeatures(box).filter((feature) => feature.sourceLayer === 'transportation_name');
         const label = nearbyLabels.find((feature) => feature.properties?.name || feature.properties?.ref)?.properties;
         const oneWayValue = props.oneway === undefined || props.oneway === null ? null : Number(props.oneway);
         const direction = oneWayValue === 1 ? 'Sehala · ikut arah jalan' :
@@ -381,21 +382,21 @@ export default function App() {
       setMessage('PMTiles archive verified · waiting for map tiles…');
       const verifyRenderedTiles = () => {
         if (!map || disposed) return;
-        const sourceLoaded = map.isSourceLoaded('openmaptiles');
+        const sourceLoaded = activeMap.isSourceLoaded('openmaptiles');
         if (!sourceLoaded) return;
-        const roadFeatures = map.queryRenderedFeatures({ layers: ['roads'] }).length;
-        const buildingFeatures = map.queryRenderedFeatures({ layers: ['building-fill'] }).length;
+        const roadFeatures = activeMap.queryRenderedFeatures({ layers: ['roads'] }).length;
+        const buildingFeatures = activeMap.queryRenderedFeatures({ layers: ['building-fill'] }).length;
         if (roadFeatures > 0 || buildingFeatures > 0) {
           setMessage(`4Riders map tiles rendered · ${roadFeatures.toLocaleString()} road segments · ${buildingFeatures.toLocaleString()} buildings`);
           setReady(true);
           refreshBuildingCount(map);
-          map.off('idle', verifyRenderedTiles);
+          activeMap.off('idle', verifyRenderedTiles);
         }
       };
-      map.on('idle', verifyRenderedTiles);
+      activeMap.on('idle', verifyRenderedTiles);
       verifyRenderedTiles();
     });
-    map.on('error', (event) => {
+    activeMap.on('error', (event) => {
       if (event.error) {
         console.error('[4Riders map]', event.error);
         setMessage(`Map tile error · ${event.error.message || 'PMTiles request failed'}`);
