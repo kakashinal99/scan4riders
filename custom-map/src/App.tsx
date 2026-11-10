@@ -595,7 +595,6 @@ export default function App() {
         <button onClick={() => { setActivePanel(null); locateMe(); }}><LocateFixed size={19}/><span>Locate</span></button>
         <button onClick={() => { setActivePanel(null); goHome(); }}><Home size={19}/><span>Home</span></button>
       </nav>
-      <div className="map-status-pill"><span className={ready ? "status-dot ready" : "status-dot"}/>{ready ? "4R MAP READY" : "LOADING MAP"}</div>
     </main>
   );
 }
