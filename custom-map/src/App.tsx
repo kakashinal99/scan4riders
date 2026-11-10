@@ -48,6 +48,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  const [topControlsCollapsed, setTopControlsCollapsed] = useState(true);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
@@ -576,6 +577,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
+      <div className={"top-controls" + (topControlsCollapsed ? " collapsed" : "")}>
       {ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
       <header className="topbar">
         <div className="brand-lockup"><div className="brand-mark">4</div><div><strong>4Riders</strong><span>CUSTOM MAP</span></div></div>
@@ -589,6 +591,10 @@ export default function App() {
         <button className="search-submit" type="submit" disabled={searching}>{searching ? '…' : 'Search'}</button>
         {results.length > 0 && <div className="search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => chooseResult(feature)}><MapPin size={15}/><span><b>{feature.properties.name || 'Unnamed place'}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(', ')}</small></span></button>)}</div>}
       </form>
+      </div>
+      <button className="top-controls-toggle" onClick={() => setTopControlsCollapsed((value) => !value)} aria-expanded={!topControlsCollapsed} aria-label={topControlsCollapsed ? "Show map controls" : "Hide map controls"}>
+        <Search size={16}/><span>{topControlsCollapsed ? "Search & route" : "Hide controls"}</span>{topControlsCollapsed ? <ChevronDown size={15}/> : <X size={15}/>}
+      </button>
 
       <div className="map-actions">
         <button className="map-action" onClick={() => setCoverageSettingsOpen((open) => !open)} aria-expanded={coverageSettingsOpen}><Crosshair size={18}/><span>Coverage Settings</span></button>
