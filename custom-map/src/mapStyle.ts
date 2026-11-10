@@ -49,6 +49,19 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
         paint: { 'line-color': '#b7a7c6', 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 18, 1.1], 'line-opacity': 0.9 }
       },
       {
+        id: 'road-casing', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        paint: {
+          'line-color': '#090a0e',
+          'line-width': [
+            'interpolate', ['linear'], ['zoom'],
+            8, ['match', ['get', 'class'], 'motorway', 2.2, 'trunk', 2, 'primary', 1.8, 0.9],
+            14, ['match', ['get', 'class'], 'motorway', 7.2, 'trunk', 6.4, 'primary', 5.8, 'secondary', 4.8, 'tertiary', 4, 2.6],
+            18, ['match', ['get', 'class'], 'motorway', 17, 'trunk', 15, 'primary', 13, 'secondary', 10, 'tertiary', 8, 4.5]
+          ],
+          'line-opacity': 0.98
+        }
+      },
+      {
         id: 'roads', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
         paint: {
           'line-color': [
@@ -60,11 +73,47 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
           ],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
-            8, ['match', ['get', 'class'], 'motorway', 1.4, 'trunk', 1.2, 'primary', 1, 0.45],
-            14, ['match', ['get', 'class'], 'motorway', 5, 'trunk', 4.2, 'primary', 3.4, 'secondary', 2.8, 'tertiary', 2.2, 1.1],
-            18, ['match', ['get', 'class'], 'motorway', 11, 'trunk', 9, 'primary', 7, 'secondary', 5, 'tertiary', 4, 2]
+            8, ['match', ['get', 'class'], 'motorway', 1.7, 'trunk', 1.5, 'primary', 1.3, 0.65],
+            14, ['match', ['get', 'class'], 'motorway', 5.8, 'trunk', 5.2, 'primary', 4.7, 'secondary', 3.9, 'tertiary', 3.2, 2],
+            18, ['match', ['get', 'class'], 'motorway', 14, 'trunk', 12.5, 'primary', 11, 'secondary', 8.5, 'tertiary', 7, 3.8]
           ],
-          'line-opacity': 0.96
+          'line-opacity': 1
+        }
+      },
+      {
+        id: 'lane-markings-3plus-left', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        minzoom: 15,
+        filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 3]],
+        paint: {
+          'line-color': 'rgba(255,255,255,0.78)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.65, 18, 1.05],
+          'line-offset': ['interpolate', ['linear'], ['zoom'], 15, -1.3, 18, -3.2],
+          'line-dasharray': [2.2, 2.2],
+          'line-opacity': 0.82
+        }
+      },
+      {
+        id: 'lane-markings-3plus-right', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        minzoom: 15,
+        filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 3]],
+        paint: {
+          'line-color': 'rgba(255,255,255,0.78)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.65, 18, 1.05],
+          'line-offset': ['interpolate', ['linear'], ['zoom'], 15, 1.3, 18, 3.2],
+          'line-dasharray': [2.2, 2.2],
+          'line-opacity': 0.82
+        }
+      },
+      {
+        id: 'lane-markings-4plus-middle', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        minzoom: 15,
+        filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 4]],
+        paint: {
+          'line-color': 'rgba(255,255,255,0.78)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.65, 18, 1.05],
+          'line-offset': 0,
+          'line-dasharray': [2.2, 2.2],
+          'line-opacity': 0.82
         }
       },
       {
