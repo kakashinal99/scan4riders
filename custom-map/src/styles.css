@@ -24,3 +24,5 @@
 .route-disclaimer{display:block;margin-top:8px;color:#81798b;font-size:8px;line-height:1.4}
 @media(min-width:760px){.route-planner{left:28px;right:auto;top:150px}}
 @media(max-width:430px){.route-planner{top:136px;max-width:none}}
+
+@media(max-width:759px){.route-planner{max-height:46vh;overflow:auto}.map-actions{top:390px}}
