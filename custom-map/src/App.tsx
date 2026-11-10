@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
+import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
 
@@ -437,6 +438,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
+      {ready && <RoutePlanner map={mapRef.current} />}
       <header className="topbar">
         <div className="brand-lockup"><div className="brand-mark">4</div><div><strong>4Riders</strong><span>CUSTOM MAP</span></div></div>
         <div className="area-pill"><span className="live-dot" /> KLANG VALLEY</div>
