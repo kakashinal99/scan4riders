@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import { Protocol } from 'pmtiles';
+import { buildMapStyle } from './mapStyle';
 import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
 
 const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
-const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
-const PMTILES_URL = import.meta.env.VITE_PMTILES_URL?.trim();
+const PMTILES_URL = (import.meta.env.VITE_PMTILES_URL?.trim() || 'https://github.com/kakashinal99/scan4riders/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles').trim();
 const pmtilesProtocol = new Protocol();
 maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 const PHOTON_API = 'https://photon.komoot.io/api/';
@@ -149,20 +149,7 @@ export default function App() {
 
     const map = new maplibregl.Map({
       container,
-      style: MAP_STYLE,
-      transformStyle: (_previousStyle, nextStyle) => {
-        // When a hosted archive URL is configured, keep the renderer's
-        // OpenMapTiles-compatible style but serve all vector data from our
-        // own versioned Klang Valley PMTiles archive.
-        if (PMTILES_URL && nextStyle.sources?.openmaptiles) {
-          nextStyle.sources.openmaptiles = {
-            type: 'vector',
-            url: `pmtiles://${PMTILES_URL}`,
-            attribution: '© OpenStreetMap contributors'
-          };
-        }
-        return nextStyle;
-      },
+      style: buildMapStyle(PMTILES_URL),
       center: initialCoverageSettings.center,
       zoom: 10.6,
       minZoom: 9.4,
@@ -356,14 +343,14 @@ export default function App() {
         });
         void lookupRoadTags(event.lngLat.lng, event.lngLat.lat, displayName, selectionKey);
       });
-      setMessage(PMTILES_URL ? 'Klang Valley PMTiles loaded · tap a road to inspect direction' : (count ? 'Map data loaded · external basemap fallback · tap a road to inspect direction' : 'Map loaded · building layer not detected in this style'));
+      setMessage('4Riders Klang Valley PMTiles loaded · tap a road to inspect direction');
       setReady(true);
       refreshBuildingCount(map);
     });
     map.on('error', (event) => {
       if (event.error) {
         console.error('[4Riders map]', event.error);
-        setMessage('Map data error · check tile connection');
+        setMessage(`Map tile error · ${event.error.message || 'PMTiles request failed'}`);
       }
     });
 
@@ -598,7 +585,7 @@ export default function App() {
         </div>
         {expanded && <div className="sheet-details">
           <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
-          <div className="detail-row"><span>Vector map source</span><b>{PMTILES_URL ? 'Klang Valley PMTiles' : 'OpenFreeMap'}</b></div>
+          <div className="detail-row"><span>Vector map source</span><b>4Riders Klang Valley PMTiles</b></div>
           <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
           <div className="detail-row"><span>Named building footprints</span><b>{namedBuildingCount === null ? 'Zoom to street level to load' : namedBuildingCount.toLocaleString()}</b></div>
           <div className="detail-row"><span>Road direction</span><b>Vector tile + raw OSM tags where available</b></div>
