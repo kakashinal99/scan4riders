@@ -49,6 +49,10 @@ export default function App() {
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
   const [activePanel, setActivePanel] = useState<string | null>(null);
+  const [gpsTracking, setGpsTracking] = useState(false);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const gpsWatchId = useRef<number | null>(null);
+  const lastGpsFixAt = useRef<number>(0);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
@@ -449,18 +453,45 @@ export default function App() {
     setCenterLabel('Klang Valley');
   }, []);
 
+  const stopGpsTracking = useCallback(() => {
+    if (gpsWatchId.current !== null && navigator.geolocation) {
+      navigator.geolocation.clearWatch(gpsWatchId.current);
+    }
+    gpsWatchId.current = null;
+    setGpsTracking(false);
+    setMessage('Live GPS tracking stopped');
+  }, []);
+
   const locateMe = useCallback(() => {
     if (!navigator.geolocation) { setMessage('Location is not supported on this device'); return; }
-    setMessage('Finding your location…');
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        mapRef.current?.flyTo({ center: [coords.longitude, coords.latitude], zoom: 16.5, duration: 900 });
-        setCenterLabel('Your current location');
-        setMessage('GPS location found');
+    if (gpsWatchId.current !== null) { stopGpsTracking(); return; }
+    setMessage('Starting live GPS… allow location access when prompted.');
+    gpsWatchId.current = navigator.geolocation.watchPosition(
+      ({ coords, timestamp }) => {
+        const position: [number, number] = [coords.longitude, coords.latitude];
+        setGpsAccuracy(Math.round(coords.accuracy));
+        setGpsTracking(true);
+        setCenterLabel('Live GPS position');
+        // Follow each reliable fix, but ignore stale or low-quality readings.
+        const fresh = timestamp >= lastGpsFixAt.current;
+        lastGpsFixAt.current = Math.max(lastGpsFixAt.current, timestamp);
+        if (fresh && coords.accuracy <= 100) {
+          mapRef.current?.easeTo({ center: position, zoom: Math.max(mapRef.current.getZoom(), 16), duration: 450 });
+        }
+        setMessage(`Live GPS · accuracy ±${Math.round(coords.accuracy)} m`);
       },
-      () => setMessage('Location permission unavailable. Enable GPS permission and try again.'),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 10000 }
+      (error) => {
+        const reason = error.code === 1 ? 'Location permission denied' : error.code === 2 ? 'GPS position unavailable' : 'GPS request timed out';
+        setMessage(`${reason}. Check device location permission and try again.`);
+        if (error.code === 1) stopGpsTracking();
+      },
+      { enableHighAccuracy: true, timeout: 20000, maximumAge: 2000 }
     );
+    setGpsTracking(true);
+  }, [stopGpsTracking]);
+
+  useEffect(() => () => {
+    if (gpsWatchId.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(gpsWatchId.current);
   }, []);
 
   const searchPlaces = async (event: FormEvent) => {
@@ -592,7 +623,7 @@ export default function App() {
         <button className={activePanel === "route" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "route" ? null : "route")}><Route size={19}/><span>Route</span></button>
         <button className={activePanel === "coverage" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "coverage" ? null : "coverage")}><Crosshair size={19}/><span>Coverage</span></button>
         <button className={activePanel === "layers" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "layers" ? null : "layers")}><Layers3 size={19}/><span>Layers</span></button>
-        <button onClick={() => { setActivePanel(null); locateMe(); }}><LocateFixed size={19}/><span>Locate</span></button>
+        <button className={gpsTracking ? "selected" : ""} onClick={() => { setActivePanel(null); locateMe(); }}><LocateFixed size={19}/><span>{gpsTracking ? "GPS On" : "Locate"}</span></button>
         <button onClick={() => { setActivePanel(null); goHome(); }}><Home size={19}/><span>Home</span></button>
       </nav>
     </main>
