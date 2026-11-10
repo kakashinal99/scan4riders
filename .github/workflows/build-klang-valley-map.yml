@@ -1,0 +1,42 @@
+name: Build Klang Valley map data
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 2 1 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: klang-valley-map-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout standalone map project
+        uses: actions/checkout@v4
+
+      - name: Install Osmium Tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+
+      - name: Build and verify PMTiles
+        working-directory: custom-map/data-pipeline
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Upload versioned map archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: klang-valley-map-${{ github.run_id }}
+          path: |
+            custom-map/data-pipeline/output/klang-valley-basemap.pmtiles
+            custom-map/data-pipeline/output/manifest.json
+          if-no-files-found: error
+          retention-days: 30
