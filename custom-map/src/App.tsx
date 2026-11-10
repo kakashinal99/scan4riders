@@ -253,10 +253,10 @@ export default function App() {
         });
         count++;
       }
-      // Prefer names embedded in our own PMTiles archive so building labels
-      // remain available without live Overpass requests. Keep the live OSM
-      // geometry fallback only while using the external online basemap.
-      if (PMTILES_URL && map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
+      // Building names are rendered directly from the vector-tile building
+      // layer. When PMTiles is enabled, geometry and names are served from our
+      // Klang Valley archive rather than live Overpass queries.
+      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
         map.addLayer({
           id: '4r-building-name-labels',
           type: 'symbol',
@@ -280,56 +280,6 @@ export default function App() {
             'text-halo-width': 1.5
           }
         });
-      } else if (!PMTILES_URL) {
-        if (!map.getSource('4r-named-buildings')) {
-          map.addSource('4r-named-buildings', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: [] }
-          });
-        }
-        if (!map.getLayer('4r-named-building-fill')) {
-          map.addLayer({
-            id: '4r-named-building-fill',
-            type: 'fill',
-            source: '4r-named-buildings',
-            minzoom: 15,
-            paint: { 'fill-color': '#806b98', 'fill-opacity': 0.24 }
-          });
-          map.addLayer({
-            id: '4r-named-building-outline',
-            type: 'line',
-            source: '4r-named-buildings',
-            minzoom: 15,
-            paint: { 'line-color': '#cdb5e7', 'line-width': 1.15, 'line-opacity': 0.95 }
-          });
-          map.addLayer({
-            id: '4r-named-building-labels',
-            type: 'symbol',
-            source: '4r-named-buildings',
-            minzoom: 15,
-            layout: {
-              'symbol-placement': 'point',
-              'text-field': ['get', 'name'],
-              'text-font': ['Noto Sans Regular'],
-              'text-size': ['interpolate', ['linear'], ['zoom'], 15, 9, 18, 12],
-              'text-max-width': 11,
-              'text-padding': 2,
-              'text-allow-overlap': false,
-              'text-ignore-placement': false
-            },
-            paint: {
-              'text-color': '#f5eafc',
-              'text-halo-color': '#211a2a',
-              'text-halo-width': 1.5
-            }
-          });
-        }
-        map.on('moveend', () => {
-          // Live Overpass data is only the temporary online-basemap fallback.
-          // The PMTiles path above does not make external building requests.
-          void loadNamedBuildings(map);
-        });
-        void loadNamedBuildings(map);
       }
       // Road-distance coverage overlay, calculated from the actual OSM road graph.
       map.addSource('4r-road-reach', {
