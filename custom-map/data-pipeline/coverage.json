@@ -1,0 +1,18 @@
+{
+  "name": "Klang Valley coverage envelope",
+  "type": "Feature",
+  "properties": {
+    "status": "initial-envelope",
+    "note": "Broad extraction envelope with fringe buffer; not an authoritative administrative boundary."
+  },
+  "geometry": {
+    "type": "Polygon",
+    "coordinates": [[
+      [101.20, 2.76],
+      [102.00, 2.76],
+      [102.00, 3.62],
+      [101.20, 3.62],
+      [101.20, 2.76]
+    ]]
+  }
+}
