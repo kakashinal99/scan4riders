@@ -12,6 +12,7 @@ EAST="102.00"
 NORTH="3.62"
 # Planetiler currently supports generated tiles through z16. The map renderer
 # can overzoom these vector tiles for closer street-level viewing.
+MIN_ZOOM="${MIN_ZOOM:-1}"
 MAX_ZOOM="${MAX_ZOOM:-16}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
@@ -47,6 +48,7 @@ docker run --rm \
   ghcr.io/onthegomap/planetiler:latest \
   --osm-path=/data/klang-valley.osm.pbf \
   --output=/data/klang-valley-basemap.pmtiles \
+  --minzoom="$MIN_ZOOM" \
   --maxzoom="$MAX_ZOOM" \
   --exclude-layers=water \
   --download=full \
@@ -81,6 +83,7 @@ cat > "$OUTPUT_DIR/manifest.json" <<EOF
     "east": $EAST,
     "north": $NORTH
   },
+  "min_zoom": $MIN_ZOOM,
   "max_zoom": $MAX_ZOOM,
   "format": "PMTiles",
   "tile_schema": "OpenMapTiles",
