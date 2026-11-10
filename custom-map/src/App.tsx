@@ -47,6 +47,7 @@ export default function App() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [sheetCollapsed, setSheetCollapsed] = useState(false);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
@@ -610,13 +611,13 @@ export default function App() {
       </section>}
       <button className="home-control" onClick={goHome}><MapPin size={15}/> Klang Valley</button>
 
-      <section className={expanded ? 'bottom-sheet expanded' : 'bottom-sheet'}>
-        <button className="sheet-handle" onClick={() => setExpanded(!expanded)} aria-label={expanded ? 'Collapse map panel' : 'Expand map panel'}>
+      <section className={`bottom-sheet${expanded ? ' expanded' : ''}${sheetCollapsed ? ' collapsed' : ''}`}>
+        <button className="sheet-handle" onClick={() => { setSheetCollapsed(false); setExpanded(false); }} aria-label="Show map information panel">
           <span />
         </button>
         <div className="sheet-heading">
           <div><span className="eyebrow">MAP AREA</span><h1>{centerLabel}</h1><p>{message}</p></div>
-          <button className="expand-button" onClick={() => setExpanded(!expanded)} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button>
+          <div className="sheet-controls"><button className="sheet-minimize" onClick={() => { setSheetCollapsed(true); setExpanded(false); }} aria-label="Hide map information panel"><ChevronDown size={19}/></button><button className="expand-button" onClick={() => { setSheetCollapsed(false); setExpanded(!expanded); }} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button></div>
         </div>
         {reachMessage && <div className="reach-note"><b>{reachStatus === 'ready' ? 'ROAD COVERAGE ACTIVE' : reachStatus === 'loading' ? 'ROUTING CALCULATION' : 'ROAD COVERAGE'}</b><span>{reachMessage}</span></div>}
         {selectedRoad && <div className="road-inspector">
