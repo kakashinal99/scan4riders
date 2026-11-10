@@ -87,8 +87,8 @@ jobs:
           cat "$FINAL_HEADERS"
           test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
           test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
-          grep -qi '^access-control-allow-origin: \\*' "$FINAL_HEADERS" || \
-            grep -qi '^access-control-allow-origin: https://fourriders-custom-map.onrender.com' "$FINAL_HEADERS" || \
+          grep -Fqi 'access-control-allow-origin: *' "$FINAL_HEADERS" || \
+            grep -Fqi 'access-control-allow-origin: https://fourriders-custom-map.onrender.com' "$FINAL_HEADERS" || \
             { echo "PMTiles host does not allow the map app origin via CORS"; exit 1; }
-          grep -qi '^access-control-expose-headers:.*content-range' "$FINAL_HEADERS" || \
+          grep -Eqi '^access-control-expose-headers:.*content-range' "$FINAL_HEADERS" || \
             { echo "PMTiles host does not expose Content-Range to browser JavaScript"; exit 1; }
