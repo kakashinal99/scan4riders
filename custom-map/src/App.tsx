@@ -576,7 +576,8 @@ export default function App() {
           <div><span className="eyebrow">MAP AREA</span><h1>{centerLabel}</h1><p>{message}</p></div>
           <button className="expand-button" onClick={() => setExpanded(!expanded)} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button>
         </div>
-        {selectedRoad && <div className="road-inspector">        {reachMessage && <div className="reach-note"><b>{reachStatus === 'ready' ? 'ROAD COVERAGE ACTIVE' : reachStatus === 'loading' ? 'ROUTING CALCULATION' : 'ROAD COVERAGE'}</b><span>{reachMessage}</span></div>}
+        {reachMessage && <div className="reach-note"><b>{reachStatus === 'ready' ? 'ROAD COVERAGE ACTIVE' : reachStatus === 'loading' ? 'ROUTING CALCULATION' : 'ROAD COVERAGE'}</b><span>{reachMessage}</span></div>}
+        {selectedRoad && <div className="road-inspector">
 
           <div className="road-inspector-top"><span className="eyebrow">ROAD INSPECTOR</span><button type="button" onClick={() => setSelectedRoad(null)} aria-label="Close road details"><X size={15}/></button></div>
           <strong>{selectedRoad.name}</strong>
