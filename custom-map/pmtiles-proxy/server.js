@@ -47,7 +47,8 @@ const server = http.createServer(async (req, res) => {
     const upstream = await fetch(UPSTREAM, {
       method: req.method,
       headers,
-      redirect: "follow"
+      redirect: "follow",
+      signal: AbortSignal.timeout(90000)
     });
 
     const responseHeaders = { ...cors };
@@ -64,6 +65,8 @@ const server = http.createServer(async (req, res) => {
       if (value) responseHeaders[name] = value;
     }
 
+    console.log("[PMTiles upstream]", req.method, req.headers.range || "no-range", upstream.status, upstream.headers.get("content-range") || "");
+
     res.writeHead(upstream.status, responseHeaders);
     if (req.method === "HEAD" || !upstream.body) {
       res.end();
@@ -71,7 +74,13 @@ const server = http.createServer(async (req, res) => {
     }
 
     const reader = upstream.body.getReader();
-    req.on("close", () => reader.cancel().catch(() => {}));
+    // The incoming request's close event can fire as soon as its request body
+    // is consumed. Watch the outgoing response instead so byte-range streams
+    // are not cancelled before the PMTiles bytes reach the browser.
+    res.on("close", () => {
+      if (!res.writableEnded) reader.cancel().catch(() => {});
+    });
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -79,12 +88,13 @@ const server = http.createServer(async (req, res) => {
         await new Promise(resolve => res.once("drain", resolve));
       }
     }
-    res.end();
+    if (!res.writableEnded) res.end();
   } catch (error) {
+    console.error("[PMTiles proxy error]", error);
     if (!res.headersSent) {
       res.writeHead(502, { ...cors, "Content-Type": "text/plain; charset=utf-8" });
     }
-    res.end(error instanceof Error ? error.message : "Upstream archive unavailable");
+    if (!res.writableEnded) res.end(error instanceof Error ? error.message : "Upstream archive unavailable");
   }
 });
 
