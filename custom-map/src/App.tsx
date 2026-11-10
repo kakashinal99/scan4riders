@@ -152,8 +152,11 @@ export default function App() {
   };
 
   const loadNamedBuildings = async (map: MapLibreMap) => {
+    // A newer viewport always invalidates an older Overpass response so stale
+    // building labels cannot be painted over a different part of the map.
+    namedBuildingsAbort.current?.abort();
+    const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
     if (map.getZoom() < 15) {
-      const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
       source?.setData({ type: 'FeatureCollection', features: [] });
       setNamedBuildingCount(null);
       return;
@@ -162,7 +165,12 @@ export default function App() {
     const west = bounds.getWest(), south = bounds.getSouth();
     const east = bounds.getEast(), north = bounds.getNorth();
     // Keep public Overpass requests focused on the visible street-level viewport.
-    if ((east - west) * (north - south) > 0.012) return;
+    // Clear the previous viewport instead of leaving unrelated building labels visible.
+    if ((east - west) * (north - south) > 0.012) {
+      source?.setData({ type: 'FeatureCollection', features: [] });
+      setNamedBuildingCount(null);
+      return;
+    }
     namedBuildingsAbort.current?.abort();
     const controller = new AbortController();
     namedBuildingsAbort.current = controller;
@@ -460,6 +468,9 @@ export default function App() {
 
     return () => {
       resizeObserver.disconnect();
+      if (namedBuildingsTimer.current) clearTimeout(namedBuildingsTimer.current);
+      namedBuildingsAbort.current?.abort();
+      roadLookupAbort.current?.abort();
       map.remove();
       mapRef.current = null;
     };
