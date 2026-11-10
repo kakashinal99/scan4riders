@@ -9,7 +9,7 @@ const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const PHOTON_API = 'https://photon.komoot.io/api/';
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
-type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string };
+type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
 type NamedBuildingFeature = {
   type: 'Feature';
   geometry: { type: 'Polygon'; coordinates: [number, number][][] };
