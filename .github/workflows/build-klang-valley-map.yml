@@ -68,3 +68,26 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify published PMTiles browser range access
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles"
+          HEADERS="$(mktemp)"
+          BODY="$(mktemp)"
+          trap 'rm -f "$HEADERS" "$BODY"' EXIT
+          STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
+            -H 'Origin: https://fourriders-custom-map.onrender.com' \
+            -H 'Range: bytes=0-15' "$URL")"
+          echo "Final HTTP status: $STATUS"
+          tr -d '\r' < "$HEADERS" | grep -iE '^(HTTP/|access-control-|accept-ranges:|content-range:)' || true
+          test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
+          test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
+          tr -d '\r' < "$HEADERS" | grep -qi '^access-control-allow-origin: \*' || \
+            tr -d '\r' < "$HEADERS" | grep -qi '^access-control-allow-origin: https://fourriders-custom-map.onrender.com' || \
+            { echo "PMTiles host does not allow the map app origin via CORS"; exit 1; }
+          tr -d '\r' < "$HEADERS" | grep -qi '^access-control-expose-headers:.*content-range' || \
+            { echo "PMTiles host does not expose Content-Range to browser JavaScript"; exit 1; }
+
