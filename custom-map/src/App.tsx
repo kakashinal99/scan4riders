@@ -41,12 +41,6 @@ function readCoverageSettings(): SavedCoverageSettings {
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
-type NamedBuildingFeature = {
-  type: 'Feature';
-  geometry: { type: 'Polygon'; coordinates: [number, number][][] };
-  properties: { name: string; osmId: number; buildingType: string };
-};
-type NamedBuildingCollection = { type: 'FeatureCollection'; features: NamedBuildingFeature[] };
 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -56,9 +50,7 @@ export default function App() {
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
-  const namedBuildingsAbort = useRef<AbortController | null>(null);
   const roadLookupAbort = useRef<AbortController | null>(null);
-  const namedBuildingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [selectedRoad, setSelectedRoad] = useState<RoadSelection | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchFeature[]>([]);
@@ -149,78 +141,6 @@ export default function App() {
           : current);
       }
     }
-  };
-
-  const loadNamedBuildings = async (map: MapLibreMap) => {
-    // A newer viewport always invalidates an older Overpass response so stale
-    // building labels cannot be painted over a different part of the map.
-    namedBuildingsAbort.current?.abort();
-    const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
-    if (map.getZoom() < 15) {
-      source?.setData({ type: 'FeatureCollection', features: [] });
-      setNamedBuildingCount(null);
-      return;
-    }
-    const bounds = map.getBounds();
-    const west = bounds.getWest(), south = bounds.getSouth();
-    const east = bounds.getEast(), north = bounds.getNorth();
-    // Keep public Overpass requests focused on the visible street-level viewport.
-    // Clear the previous viewport instead of leaving unrelated building labels visible.
-    if ((east - west) * (north - south) > 0.012) {
-      source?.setData({ type: 'FeatureCollection', features: [] });
-      setNamedBuildingCount(null);
-      return;
-    }
-    namedBuildingsAbort.current?.abort();
-    const controller = new AbortController();
-    namedBuildingsAbort.current = controller;
-    const bbox = [south, west, north, east].map((value) => value.toFixed(5)).join(',');
-    const queryText = `[out:json][timeout:20];way["building"]["name"](${bbox});out geom;`;
-    try {
-      const response = await fetch('https://overpass-api.de/api/interpreter', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: `data=${encodeURIComponent(queryText)}`,
-        signal: controller.signal
-      });
-      if (!response.ok) throw new Error('Named building query failed');
-      const payload = await response.json() as {
-        elements?: Array<{
-          type: string; id: number; tags?: Record<string, string>;
-          geometry?: Array<{ lon: number; lat: number }>;
-        }>;
-      };
-      const features: NamedBuildingFeature[] = (payload.elements ?? [])
-        .filter((element) => element.type === 'way' && element.tags?.name && element.geometry && element.geometry.length >= 4)
-        .map((element) => {
-          const ring = (element.geometry ?? []).map((point) => [point.lon, point.lat] as [number, number]);
-          const first = ring[0], last = ring[ring.length - 1];
-          if (first[0] !== last[0] || first[1] !== last[1]) ring.push(first);
-          return {
-            type: 'Feature' as const,
-            geometry: { type: 'Polygon' as const, coordinates: [ring] },
-            properties: {
-              name: element.tags?.name ?? 'Unnamed building',
-              osmId: element.id,
-              buildingType: element.tags?.building ?? 'yes'
-            }
-          };
-        });
-      if (controller.signal.aborted) return;
-      const source = map.getSource('4r-named-buildings') as maplibregl.GeoJSONSource | undefined;
-      source?.setData({ type: 'FeatureCollection', features } as NamedBuildingCollection);
-      setNamedBuildingCount(features.length);
-    } catch (error) {
-      if (!controller.signal.aborted) {
-        console.warn('[4Riders named buildings]', error);
-        setNamedBuildingCount(null);
-      }
-    }
-  };
-
-  const scheduleNamedBuildings = (map: MapLibreMap) => {
-    if (namedBuildingsTimer.current) clearTimeout(namedBuildingsTimer.current);
-    namedBuildingsTimer.current = setTimeout(() => { void loadNamedBuildings(map); }, 850);
   };
 
   useEffect(() => {
@@ -333,40 +253,23 @@ export default function App() {
         });
         count++;
       }
-      // Named building footprints come from live OSM geometry, not unsupported tile labels.
-      // Labels are rendered over the polygon itself and only requested at street-level zoom.
-      if (!map.getSource('4r-named-buildings')) {
-        map.addSource('4r-named-buildings', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: [] }
-        });
-      }
-      if (!map.getLayer('4r-named-building-fill')) {
+      // Prefer names embedded in our own PMTiles archive so building labels
+      // remain available without live Overpass requests. Keep the live OSM
+      // geometry fallback only while using the external online basemap.
+      if (PMTILES_URL && map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
         map.addLayer({
-          id: '4r-named-building-fill',
-          type: 'fill',
-          source: '4r-named-buildings',
-          minzoom: 15,
-          paint: { 'fill-color': '#806b98', 'fill-opacity': 0.24 }
-        });
-        map.addLayer({
-          id: '4r-named-building-outline',
-          type: 'line',
-          source: '4r-named-buildings',
-          minzoom: 15,
-          paint: { 'line-color': '#cdb5e7', 'line-width': 1.15, 'line-opacity': 0.95 }
-        });
-        map.addLayer({
-          id: '4r-named-building-labels',
+          id: '4r-building-name-labels',
           type: 'symbol',
-          source: '4r-named-buildings',
+          source: 'openmaptiles',
+          'source-layer': 'building',
           minzoom: 15,
+          filter: ['all', ['has', 'name'], ['!=', ['get', 'name'], '']],
           layout: {
             'symbol-placement': 'point',
             'text-field': ['get', 'name'],
             'text-font': ['Noto Sans Regular'],
             'text-size': ['interpolate', ['linear'], ['zoom'], 15, 9, 18, 12],
-            'text-max-width': 11,
+            'text-max-width': 10,
             'text-padding': 2,
             'text-allow-overlap': false,
             'text-ignore-placement': false
@@ -377,9 +280,57 @@ export default function App() {
             'text-halo-width': 1.5
           }
         });
+      } else if (!PMTILES_URL) {
+        if (!map.getSource('4r-named-buildings')) {
+          map.addSource('4r-named-buildings', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] }
+          });
+        }
+        if (!map.getLayer('4r-named-building-fill')) {
+          map.addLayer({
+            id: '4r-named-building-fill',
+            type: 'fill',
+            source: '4r-named-buildings',
+            minzoom: 15,
+            paint: { 'fill-color': '#806b98', 'fill-opacity': 0.24 }
+          });
+          map.addLayer({
+            id: '4r-named-building-outline',
+            type: 'line',
+            source: '4r-named-buildings',
+            minzoom: 15,
+            paint: { 'line-color': '#cdb5e7', 'line-width': 1.15, 'line-opacity': 0.95 }
+          });
+          map.addLayer({
+            id: '4r-named-building-labels',
+            type: 'symbol',
+            source: '4r-named-buildings',
+            minzoom: 15,
+            layout: {
+              'symbol-placement': 'point',
+              'text-field': ['get', 'name'],
+              'text-font': ['Noto Sans Regular'],
+              'text-size': ['interpolate', ['linear'], ['zoom'], 15, 9, 18, 12],
+              'text-max-width': 11,
+              'text-padding': 2,
+              'text-allow-overlap': false,
+              'text-ignore-placement': false
+            },
+            paint: {
+              'text-color': '#f5eafc',
+              'text-halo-color': '#211a2a',
+              'text-halo-width': 1.5
+            }
+          });
+        }
+        map.on('moveend', () => {
+          // Live Overpass data is only the temporary online-basemap fallback.
+          // The PMTiles path above does not make external building requests.
+          void loadNamedBuildings(map);
+        });
+        void loadNamedBuildings(map);
       }
-      scheduleNamedBuildings(map);
-      map.on('moveend', () => scheduleNamedBuildings(map));
       // Road-distance coverage overlay, calculated from the actual OSM road graph.
       map.addSource('4r-road-reach', {
         type: 'geojson',
@@ -468,8 +419,6 @@ export default function App() {
 
     return () => {
       resizeObserver.disconnect();
-      if (namedBuildingsTimer.current) clearTimeout(namedBuildingsTimer.current);
-      namedBuildingsAbort.current?.abort();
       roadLookupAbort.current?.abort();
       map.remove();
       mapRef.current = null;
@@ -478,10 +427,20 @@ export default function App() {
 
   const refreshBuildingCount = (map: MapLibreMap) => {
     try {
-      const layers = (map.getStyle().layers ?? []).filter((layer) => layer.id.toLowerCase().includes('building') && layer.type === 'fill').map((layer) => layer.id);
-      if (!layers.length) { setBuildingCount(null); return; }
-      setBuildingCount(map.queryRenderedFeatures({ layers }).length);
-    } catch { setBuildingCount(null); }
+      const layers = (map.getStyle().layers ?? [])
+        .filter((layer) => layer.id.toLowerCase().includes('building') && layer.type === 'fill')
+        .map((layer) => layer.id);
+      setBuildingCount(layers.length ? map.queryRenderedFeatures({ layers }).length : null);
+      const nameLayer = map.getLayer('4r-building-name-labels')
+        ? '4r-building-name-labels'
+        : map.getLayer('4r-named-building-labels')
+          ? '4r-named-building-labels'
+          : null;
+      setNamedBuildingCount(nameLayer ? map.queryRenderedFeatures({ layers: [nameLayer] }).length : null);
+    } catch {
+      setBuildingCount(null);
+      setNamedBuildingCount(null);
+    }
   };
 
   useEffect(() => {
