@@ -52,6 +52,8 @@ export default function App() {
   const [gpsTracking, setGpsTracking] = useState(false);
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const gpsWatchId = useRef<number | null>(null);
+  const gpsMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const gpsArrowRef = useRef<HTMLElement | null>(null);
   const lastGpsFixAt = useRef<number>(0);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
@@ -458,6 +460,9 @@ export default function App() {
       navigator.geolocation.clearWatch(gpsWatchId.current);
     }
     gpsWatchId.current = null;
+    gpsMarkerRef.current?.remove();
+    gpsMarkerRef.current = null;
+    gpsArrowRef.current = null;
     setGpsTracking(false);
     setMessage('Live GPS tracking stopped');
   }, []);
@@ -472,6 +477,30 @@ export default function App() {
         setGpsAccuracy(Math.round(coords.accuracy));
         setGpsTracking(true);
         setCenterLabel('Live GPS position');
+        // Render a persistent, custom current-location marker on our own map.
+        // The blue centre dot shows the fix; the arrow rotates when the device
+        // supplies a reliable GPS course/heading.
+        const activeMap = mapRef.current;
+        if (activeMap) {
+          if (!gpsMarkerRef.current) {
+            const markerElement = document.createElement('div');
+            markerElement.className = 'user-location-marker';
+            markerElement.setAttribute('aria-label', 'Your current location');
+            markerElement.innerHTML = '<span class="user-location-pulse"></span><span class="user-location-core"></span><svg class="user-location-arrow" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5 25.5 27 16 21.5 6.5 27Z" /></svg>';
+            gpsArrowRef.current = markerElement.querySelector('.user-location-arrow');
+            gpsMarkerRef.current = new maplibregl.Marker({ element: markerElement, anchor: 'center' })
+              .setLngLat(position)
+              .addTo(activeMap);
+          } else {
+            gpsMarkerRef.current.setLngLat(position);
+          }
+          const markerElement = gpsMarkerRef.current.getElement();
+          const hasHeading = coords.heading !== null && Number.isFinite(coords.heading);
+          markerElement.classList.toggle('has-heading', hasHeading);
+          if (hasHeading && gpsArrowRef.current) {
+            gpsArrowRef.current.style.transform = `rotate(${coords.heading}deg)`;
+          }
+        }
         // Follow each reliable fix, but ignore stale or low-quality readings.
         const fresh = timestamp >= lastGpsFixAt.current;
         lastGpsFixAt.current = Math.max(lastGpsFixAt.current, timestamp);
@@ -492,6 +521,9 @@ export default function App() {
 
   useEffect(() => () => {
     if (gpsWatchId.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(gpsWatchId.current);
+    gpsMarkerRef.current?.remove();
+    gpsMarkerRef.current = null;
+    gpsArrowRef.current = null;
   }, []);
 
   const searchPlaces = async (event: FormEvent) => {
