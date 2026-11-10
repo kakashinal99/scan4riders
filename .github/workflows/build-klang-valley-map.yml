@@ -17,7 +17,7 @@ on:
     - cron: "20 2 1 * *"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: klang-valley-map-build
@@ -50,6 +50,7 @@ jobs:
           retention-days: 30
 
       - name: Publish public PMTiles release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: klang-valley-basemap-latest
