@@ -38,6 +38,9 @@ osmium extract \
 test -s klang-valley.osm.pbf
 
 echo "==> Building standalone vector basemap with Planetiler (max zoom $MAX_ZOOM)"
+# The upstream water-polygons host timed out repeatedly in GitHub Actions.
+# Exclude only the polygon water layer for this first reliable build; OSM roads,
+# buildings, places, boundaries, waterways and the other profile layers remain.
 docker run --rm \
   -e JAVA_TOOL_OPTIONS="-Xmx4g" \
   -v "$WORK_DIR:/data" \
@@ -45,6 +48,7 @@ docker run --rm \
   --osm-path=/data/klang-valley.osm.pbf \
   --output=/data/klang-valley-basemap.pmtiles \
   --maxzoom="$MAX_ZOOM" \
+  --exclude-layers=water \
   --download=full \
   --force
 
