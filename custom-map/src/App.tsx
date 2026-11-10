@@ -403,13 +403,6 @@ export default function App() {
       }
     });
 
-    return () => {
-      disposed = true;
-      resizeObserver?.disconnect();
-      roadLookupAbort.current?.abort();
-      map?.remove();
-      mapRef.current = null;
-    };
     void startMap();
     return () => {
       disposed = true;
