@@ -46,15 +46,28 @@ export default function App() {
         if (layer.type === 'fill') {
           map.setPaintProperty(layer.id, 'fill-color', '#76658f');
           map.setPaintProperty(layer.id, 'fill-opacity', 0.82);
-          if (map.getPaintProperty(layer.id, 'fill-outline-color') !== undefined) {
-            map.setPaintProperty(layer.id, 'fill-outline-color', '#a99abb');
-          }
+          map.setPaintProperty(layer.id, 'fill-outline-color', '#b9a5cd');
         }
         if (layer.type === 'line') {
           map.setPaintProperty(layer.id, 'line-color', '#b4a2c8');
           map.setPaintProperty(layer.id, 'line-opacity', 0.8);
         }
       });
+      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-outlines')) {
+        map.addLayer({
+          id: '4r-building-outlines',
+          type: 'line',
+          source: 'openmaptiles',
+          'source-layer': 'building',
+          minzoom: 15,
+          paint: {
+            'line-color': '#b9a5cd',
+            'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 18, 1.1],
+            'line-opacity': 0.9
+          }
+        });
+        count++;
+      }
       setMessage(count ? 'Map data loaded' : 'Map loaded · building layer not detected in this style');
       setReady(true);
       refreshBuildingCount(map);
