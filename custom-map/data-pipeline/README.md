@@ -23,6 +23,10 @@ The initial extraction uses the envelope already used by the standalone map app:
 
 This is a **coverage envelope**, not a claim that it is an authoritative administrative boundary for Greater Kuala Lumpur. It intentionally includes an edge buffer around the Klang Valley. Replace it with a reviewed multi-polygon boundary before treating the edge as a hard product boundary.
 
+## Tile zoom
+
+The build generates vector tiles through **z16**, which is the current Planetiler limit. The map renderer can still allow users to zoom closer by overzooming z16 vector geometry; generating additional tile levels is not required for that display behavior. The archive's actual source max zoom will be recorded in its manifest and PMTiles metadata.
+
 ## Run locally (Linux/macOS)
 
 Requirements: Docker, Osmium Tool, curl, md5sum, and at least 8 GB RAM plus 10 GB free disk space.
