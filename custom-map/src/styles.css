@@ -26,3 +26,5 @@
 @media(max-width:430px){.route-planner{top:136px;max-width:none}}
 
 @media(max-width:759px){.route-planner{max-height:46vh;overflow:auto}.map-actions{top:390px}}
+
+.reach-action{border-color:#c5a2e8aa;background:linear-gradient(145deg,#55416c,#30263c);color:#fff}.reach-action:disabled{opacity:.65}.reach-active{border-color:#e6c8a0;background:linear-gradient(145deg,#6b533d,#3c2e27);color:#fff}.reach-note{display:flex;flex-direction:column;gap:5px;margin:0 0 12px;padding:12px 13px;border:1px solid #c5a2e855;border-radius:13px;background:linear-gradient(145deg,#34283f,#211b2a)}.reach-note b{color:#e2c7f6;font-size:9px;letter-spacing:1.3px}.reach-note span{color:#d4cbdc;font-size:10px;line-height:1.45}
