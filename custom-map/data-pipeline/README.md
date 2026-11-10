@@ -40,7 +40,7 @@ Output:
 - `output/klang-valley-basemap.pmtiles`
 - `output/manifest.json`
 
-The workflow is also manually runnable and scheduled monthly. It stores generated archives as workflow artifacts rather than committing large binary map files into Git.
+The workflow is triggered by trusted pushes to `main` or `feature/custom-map-foundation`, can be run manually, and is scheduled monthly. Pull-request runs store temporary artifacts only; trusted branch pushes publish the verified PMTiles archive and manifest to the `klang-valley-basemap-latest` GitHub Release. Large binary map files are not committed into Git.
 
 ## Online + offline delivery
 
