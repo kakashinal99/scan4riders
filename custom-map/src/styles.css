@@ -56,3 +56,40 @@
 
 /* Map-first mode: keep search and route tools available without covering the map. */
 .top-controls-toggle{position:absolute;z-index:8;top:max(14px,env(safe-area-inset-top));left:16px;display:flex;align-items:center;gap:8px;min-height:39px;padding:0 12px;border:1px solid #ffffff25;border-radius:13px;background:#191720ed;color:#eee8f5;backdrop-filter:blur(16px);box-shadow:0 7px 22px #0006;font:inherit;font-size:11px;font-weight:750}.top-controls.collapsed .topbar,.top-controls.collapsed .search-box,.top-controls.collapsed .route-planner{display:none}.top-controls:not(.collapsed) .top-controls-toggle{left:auto;right:16px}.top-controls:not(.collapsed) .topbar{top:max(14px,env(safe-area-inset-top));left:16px;right:150px}.top-controls:not(.collapsed) .search-box{top:74px}.top-controls:not(.collapsed) .route-planner{top:137px}@media(min-width:760px){.top-controls-toggle{left:28px;top:22px}.top-controls:not(.collapsed) .top-controls-toggle{right:28px;left:auto;top:22px}.top-controls:not(.collapsed) .topbar{left:28px;right:170px;top:22px}}
+
+/* Bottom-first interface: keep the map completely clear until a dock tool is opened. */
+.top-controls,.topbar,.search-box,.map-actions,.home-control,.zoom-controls,.coverage-settings,.top-controls-toggle,.bottom-sheet{display:none!important}
+.bottom-dock{position:absolute;z-index:20;left:10px;right:10px;bottom:max(8px,env(safe-area-inset-bottom));display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:3px;padding:8px 5px;border:1px solid #ffffff20;border-radius:20px;background:rgba(24,21,31,.96);box-shadow:0 8px 30px #0009;backdrop-filter:blur(18px)}
+.bottom-dock button{min-width:0;min-height:52px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;border:0;border-radius:13px;background:transparent;color:#aaa2b5;font:inherit}
+.bottom-dock button svg{flex-shrink:0}
+.bottom-dock button span{font-size:9px;font-weight:750;letter-spacing:.1px}
+.bottom-dock button.selected{background:#59466c;color:#fff}
+.map-tool-panel{position:absolute;z-index:19;left:10px;right:10px;bottom:calc(max(8px,env(safe-area-inset-bottom)) + 76px);max-height:min(56vh,520px);overflow:auto;padding:15px;border:1px solid #c6a0f655;border-radius:20px;background:linear-gradient(155deg,rgba(35,29,45,.98),rgba(21,19,28,.98));box-shadow:0 12px 40px #000b;backdrop-filter:blur(20px);color:#f3edf9}
+.map-tool-panel-head{position:sticky;top:-15px;z-index:2;display:flex;align-items:center;justify-content:space-between;margin:-15px -15px 14px;padding:15px;border-bottom:1px solid #ffffff13;border-radius:20px 20px 0 0;background:#211c2af5}
+.map-tool-panel-head span{color:#c6a0f6;font-size:10px;font-weight:850;letter-spacing:1.5px}
+.map-tool-panel-head button{width:32px;height:32px;display:grid;place-items:center;border:1px solid #ffffff20;border-radius:10px;background:#ffffff09;color:#eee6f5}
+.dock-search-form{display:flex;align-items:center;gap:9px;min-height:48px;padding:5px 7px 5px 11px;border:1px solid #ffffff22;border-radius:13px;background:#ffffff0a;color:#c8bdd4}
+.dock-search-form input{flex:1;min-width:0;border:0;outline:0;background:transparent;color:#fff;font:inherit;font-size:12px}
+.dock-search-form>button{border:0;border-radius:9px;padding:9px 12px;background:#9273ad;color:#fff;font-size:11px;font-weight:800}
+.dock-search-form>button:disabled{opacity:.55}
+.dock-search-results{display:grid;gap:5px;margin-top:9px}
+.dock-search-results button{display:flex;align-items:center;gap:10px;padding:11px;border:1px solid #ffffff13;border-radius:11px;background:#ffffff08;color:#eee8f5;text-align:left}
+.dock-search-results b,.dock-search-results small{display:block}.dock-search-results b{font-size:12px}.dock-search-results small{margin-top:3px;color:#aaa1b4;font-size:10px}
+.map-tool-panel .route-planner{position:static;max-width:none;max-height:none;overflow:visible;margin:0;padding:0;border:0;background:transparent;box-shadow:none;backdrop-filter:none}
+.map-tool-panel .route-planner-heading strong{font-size:14px}
+.map-tool-panel .route-disclaimer{margin-bottom:2px}
+.map-tool-panel .coverage-setting-label{display:block;margin:12px 0 6px;color:#b8a6c8;font-size:9px;font-weight:850;letter-spacing:1.2px}
+.map-tool-panel .coverage-center-name{display:block;color:#f5eff9;font-size:13px}
+.map-tool-panel .coverage-coordinates{display:block;margin-top:4px;color:#9d94a8;font-size:10px}
+.map-tool-panel .coverage-pick,.map-tool-panel .coverage-apply{width:100%;min-height:39px;margin-top:9px;border-radius:11px;font-size:11px;font-weight:800}
+.map-tool-panel .coverage-radius-row{margin-top:8px}
+.map-tool-panel .coverage-presets{margin-top:9px}
+.map-tool-panel .coverage-footnote{display:block;margin-top:9px;color:#a59bac;font-size:10px;line-height:1.45}
+.tool-message{margin:11px 0 0;color:#b8afc2;font-size:11px;line-height:1.5}
+.dock-setting-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 2px;border-bottom:1px solid #ffffff12}
+.dock-setting-row b,.dock-setting-row small{display:block}.dock-setting-row b{font-size:12px}.dock-setting-row small{margin-top:4px;color:#a69eaf;font-size:10px}
+.dock-toggle{min-width:50px;padding:8px 10px;border:1px solid #ffffff25;border-radius:9px;background:#ffffff0b;color:#bdb4c8;font-size:10px;font-weight:850}
+.dock-toggle.on{border-color:#a78bc888;background:#5b4770;color:#fff}
+.dock-zoom{display:flex;gap:6px}.dock-zoom button{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff22;border-radius:10px;background:#ffffff0a;color:#eee8f5}
+.map-tool-panel .road-tags{margin:10px 0}
+@media(min-width:760px){.bottom-dock{left:50%;right:auto;bottom:18px;width:min(560px,calc(100vw - 40px));transform:translateX(-50%);padding:9px}.bottom-dock button{min-height:58px}.bottom-dock button span{font-size:10px}.map-tool-panel{left:50%;right:auto;bottom:100px;width:min(560px,calc(100vw - 40px));max-height:58vh;transform:translateX(-50%)}}
