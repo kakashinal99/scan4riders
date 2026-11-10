@@ -48,3 +48,21 @@ jobs:
             custom-map/data-pipeline/output/manifest.json
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish public PMTiles release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: klang-valley-basemap-latest
+          name: 4Riders Klang Valley Basemap (latest)
+          body: |
+            Automatically generated Klang Valley vector basemap from OpenStreetMap data.
+            Source: Geofabrik Malaysia-Singapore-Brunei extract. License: ODbL-1.0.
+            The PMTiles archive is served as a public release asset for HTTP byte-range access.
+          files: |
+            custom-map/data-pipeline/output/klang-valley-basemap.pmtiles
+            custom-map/data-pipeline/output/manifest.json
+          overwrite_files: true
+          make_latest: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
