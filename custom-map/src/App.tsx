@@ -598,12 +598,12 @@ export default function App() {
         </div>
         {expanded && <div className="sheet-details">
           <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
-          <div className="detail-row"><span>Vector map source</span><b>OpenFreeMap</b></div>
+          <div className="detail-row"><span>Vector map source</span><b>{PMTILES_URL ? 'Klang Valley PMTiles' : 'OpenFreeMap'}</b></div>
           <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
           <div className="detail-row"><span>Named building footprints</span><b>{namedBuildingCount === null ? 'Zoom to street level to load' : namedBuildingCount.toLocaleString()}</b></div>
           <div className="detail-row"><span>Road direction</span><b>Vector tile + raw OSM tags where available</b></div>
           <div className="detail-row"><span>Lane data</span><b>Raw OSM lanes tag when mapped; otherwise marked unavailable</b></div>
-          <div className="pilot-note"><b>Current milestone</b><p>Named building footprints and labels are fetched from OpenStreetMap at street-level zoom. Coverage depends on mapped OSM building names; lane counts still need a richer road-data source.</p></div>
+          <div className="pilot-note"><b>Current milestone</b><p>Building names are rendered from the vector-tile building layer at street-level zoom. Coverage depends on OSM name tags; lane counts still use a separate OSM tag lookup.</p></div>
         </div>}
         <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
       </section>
