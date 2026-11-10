@@ -10,7 +10,9 @@ WEST="101.20"
 SOUTH="2.76"
 EAST="102.00"
 NORTH="3.62"
-MAX_ZOOM="${MAX_ZOOM:-17}"
+# Planetiler currently supports generated tiles through z16. The map renderer
+# can overzoom these vector tiles for closer street-level viewing.
+MAX_ZOOM="${MAX_ZOOM:-16}"
 
 command -v docker >/dev/null || { echo "Docker is required." >&2; exit 1; }
 command -v osmium >/dev/null || { echo "Osmium Tool is required (https://osmcode.org/osmium-tool/)." >&2; exit 1; }
@@ -35,7 +37,7 @@ osmium extract \
 
 test -s klang-valley.osm.pbf
 
-echo "==> Building standalone vector basemap with Planetiler"
+echo "==> Building standalone vector basemap with Planetiler (max zoom $MAX_ZOOM)"
 docker run --rm \
   -e JAVA_TOOL_OPTIONS="-Xmx4g" \
   -v "$WORK_DIR:/data" \
