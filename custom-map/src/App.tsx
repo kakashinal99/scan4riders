@@ -438,7 +438,7 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
-      {ready && <RoutePlanner map={mapRef.current} />}
+      {ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
       <header className="topbar">
         <div className="brand-lockup"><div className="brand-mark">4</div><div><strong>4Riders</strong><span>CUSTOM MAP</span></div></div>
         <div className="area-pill"><span className="live-dot" /> KLANG VALLEY</div>
