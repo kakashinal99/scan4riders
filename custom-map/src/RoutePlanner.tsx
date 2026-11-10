@@ -59,6 +59,12 @@ export default function RoutePlanner({ map }: Props) {
   const [maneuvers, setManeuvers] = useState<Maneuver[]>([]);
   const destinationMarker = useRef<maplibregl.Marker | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const navigationWatch = useRef<number | null>(null);
+  const routeCoordinates = useRef<[number, number][]>([]);
+  const lastRerouteAt = useRef(0);
+  const [navigating, setNavigating] = useState(false);
+  const [navigationMessage, setNavigationMessage] = useState('');
+
 
   useEffect(() => {
     if (!map.isStyleLoaded()) return;
@@ -83,6 +89,7 @@ export default function RoutePlanner({ map }: Props) {
     }
     return () => {
       abortRef.current?.abort();
+      if (navigationWatch.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(navigationWatch.current);
       destinationMarker.current?.remove();
       if (map.getLayer(ROUTE_LAYER)) map.removeLayer(ROUTE_LAYER);
       if (map.getSource(ROUTE_SOURCE)) map.removeSource(ROUTE_SOURCE);
@@ -141,6 +148,7 @@ export default function RoutePlanner({ map }: Props) {
       const leg = data.trip?.legs?.[0];
       if (!leg?.shape || !data.trip?.summary) throw new Error(data.error || 'No motorcycle route found for these points.');
       const coordinates = decodePolyline6(leg.shape);
+      routeCoordinates.current = coordinates;
       const source = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
       if (!source) throw new Error('Map route layer is not ready. Try again.');
       source.setData({
@@ -169,8 +177,72 @@ export default function RoutePlanner({ map }: Props) {
     }
   };
 
+  const stopNavigation = () => {
+    if (navigationWatch.current !== null && navigator.geolocation) navigator.geolocation.clearWatch(navigationWatch.current);
+    navigationWatch.current = null;
+    setNavigating(false);
+    setNavigationMessage('Navigation stopped');
+  };
+
+  const startNavigation = () => {
+    if (!destination || !summary) return;
+    if (!navigator.geolocation) { setNavigationMessage('GPS is not supported on this device'); return; }
+    if (navigationWatch.current !== null) { stopNavigation(); return; }
+    setNavigationMessage('Waiting for GPS fix…');
+    navigationWatch.current = navigator.geolocation.watchPosition(async ({ coords }) => {
+      const current: [number, number] = [coords.longitude, coords.latitude];
+      map.easeTo({ center: current, zoom: Math.max(16, map.getZoom()), duration: 350 });
+      const points = routeCoordinates.current;
+      if (points.length) {
+        const distance = (a: [number, number], b: [number, number]) => {
+          const rad = Math.PI / 180, x = (b[0] - a[0]) * rad * Math.cos((a[1] + b[1]) * rad / 2), y = (b[1] - a[1]) * rad;
+          return 6371000 * Math.hypot(x, y);
+        };
+        const nearest = Math.min(...points.map((point) => distance(current, point)));
+        if (nearest > 80 && Date.now() - lastRerouteAt.current > 15000) {
+          lastRerouteAt.current = Date.now();
+          setNavigationMessage('Off route · recalculating motorcycle route…');
+          try {
+            const response = await fetch(VALHALLA_URL, {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                locations: [{ lat: coords.latitude, lon: coords.longitude }, destination],
+                costing: 'motorcycle',
+                costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
+                units: 'kilometers', language: 'en-US',
+                directions_options: { units: 'kilometers' }
+              })
+            });
+            if (!response.ok) throw new Error('Reroute service unavailable');
+            const data = await response.json() as RouteResponse;
+            const leg = data.trip?.legs?.[0];
+            if (!leg?.shape || !data.trip?.summary) throw new Error('No alternative route found');
+            const next = decodePolyline6(leg.shape);
+            routeCoordinates.current = next;
+            const source = map.getSource(ROUTE_SOURCE) as maplibregl.GeoJSONSource | undefined;
+            source?.setData({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: next } }] });
+            setSummary({ km: data.trip.summary.length ?? 0, minutes: Math.max(1, Math.round((data.trip.summary.time ?? 0) / 60)) });
+            setManeuvers((leg.maneuvers ?? []).slice(0, 6));
+            setNavigationMessage('New route calculated');
+          } catch (error) {
+            setNavigationMessage(error instanceof Error ? error.message : 'Automatic reroute failed');
+          }
+        } else {
+          setNavigationMessage(nearest > 80 ? 'Off route · waiting before reroute' : `On route · GPS accuracy ±${Math.round(coords.accuracy)} m`);
+        }
+      }
+    }, (error) => {
+      setNavigationMessage(error.code === 1 ? 'GPS permission denied' : 'GPS signal unavailable');
+      stopNavigation();
+    }, { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 });
+    setNavigating(true);
+    setNavigationMessage('Navigation active · keep this screen open');
+  };
+
   const clearRoute = () => {
     abortRef.current?.abort();
+    if (navigationWatch.current !== null) stopNavigation();
+    routeCoordinates.current = [];
     setDestination(null);
     setSummary(null);
     setManeuvers([]);
@@ -207,8 +279,10 @@ export default function RoutePlanner({ map }: Props) {
       {maneuvers.length > 0 && <ol className="route-maneuvers">
         {maneuvers.map((item, index) => <li key={index}>{item.instruction || 'Continue'}</li>)}
       </ol>}
-      {summary && <button type="button" className="route-clear" onClick={clearRoute}>Clear route</button>}
-      <small className="route-disclaimer">OSM-based routing · estimated time · no live traffic or automatic rerouting</small>
+      {summary && <button type="button" className="route-go" onClick={startNavigation}>{navigating ? 'Stop navigation' : 'Start navigation'}</button>}
+      {navigating && <p className="route-status" aria-live="polite">{navigationMessage}</p>}
+      {summary && <button type="button" className="route-clear" onClick={clearRoute}>Clear route</button>
+      <small className="route-disclaimer">Motorcycle routing · active GPS guidance · off-route recalculation · no live traffic</small>
     </section>
   );
 }
