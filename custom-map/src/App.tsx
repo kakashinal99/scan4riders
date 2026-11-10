@@ -47,7 +47,7 @@ export default function App() {
   const mapRef = useRef<MapLibreMap | null>(null);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [sheetCollapsed, setSheetCollapsed] = useState(false);
+  const [sheetCollapsed, setSheetCollapsed] = useState(true);
   const [topControlsCollapsed, setTopControlsCollapsed] = useState(true);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
