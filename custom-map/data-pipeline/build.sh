@@ -45,6 +45,7 @@ docker run --rm \
   --osm-path=/data/klang-valley.osm.pbf \
   --output=/data/klang-valley-basemap.pmtiles \
   --maxzoom="$MAX_ZOOM" \
+  --download=full \
   --force
 
 test -s klang-valley-basemap.pmtiles
