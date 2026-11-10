@@ -21,6 +21,7 @@ npm run dev
 ## Current scope
 - Interactive vector map centred on Batu Tiga KTM station area
 - Pan, zoom, recenter, continuous foreground GPS follow mode
+- Live blue GPS position marker with an accuracy halo; a directional arrow appears when the device reports a valid GPS heading
 - Motorcycle route preview, active GPS follow and off-route route recalculation (beta)
 - Installable PWA shell with app icon and limited app-shell/static-asset caching
 - Place search with Photon
