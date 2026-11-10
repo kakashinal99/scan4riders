@@ -3,7 +3,8 @@ import * as maplibregl from 'maplibre-gl';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
 
-const BATU_TIGA: [number, number] = [101.55958, 3.07584];
+const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
+const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const PHOTON_API = 'https://photon.komoot.io/api/';
 
@@ -19,8 +20,8 @@ export default function App() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchFeature[]>([]);
   const [searching, setSearching] = useState(false);
-  const [message, setMessage] = useState('Loading Batu Tiga map…');
-  const [centerLabel, setCenterLabel] = useState('Batu Tiga, Shah Alam');
+  const [message, setMessage] = useState('Loading Klang Valley map…');
+  const [centerLabel, setCenterLabel] = useState('Klang Valley');
 
   useEffect(() => {
     const container = mapNode.current;
@@ -29,9 +30,10 @@ export default function App() {
     const map = new maplibregl.Map({
       container,
       style: MAP_STYLE,
-      center: BATU_TIGA,
-      zoom: 15.8,
-      minZoom: 3,
+      center: KLANG_VALLEY_CENTER,
+      zoom: 10.6,
+      minZoom: 9.4,
+      maxBounds: KLANG_VALLEY_BOUNDS,
       maxZoom: 20,
       attributionControl: false,
       pitchWithRotate: false,
@@ -52,6 +54,21 @@ export default function App() {
       requestAnimationFrame(() => map.resize());
       const layers = map.getStyle().layers ?? [];
       let count = 0;
+      // Keep the road hierarchy legible and visually distinct at every useful zoom.
+      layers.forEach((layer) => {
+        const id = layer.id.toLowerCase();
+        if (layer.type !== 'line' || !(id.includes('transportation') || id.includes('road'))) return;
+        try {
+          map.setPaintProperty(layer.id, 'line-color', [
+            'match', ['get', 'class'],
+            'motorway', '#d8a4c8', 'trunk', '#c59acb',
+            'primary', '#e0bd91', 'secondary', '#d2c49c',
+            'tertiary', '#b8b0c5', 'minor', '#a49caf',
+            'residential', '#8f899d', 'service', '#777181',
+            '#9690a2'
+          ]);
+        } catch { /* Some style layers use a different schema. */ }
+      });
       layers.forEach((layer) => {
         if (!layer.id.toLowerCase().includes('building')) return;
         count++;
@@ -65,6 +82,14 @@ export default function App() {
           map.setPaintProperty(layer.id, 'line-opacity', 0.8);
         }
       });
+      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
+        map.addLayer({
+          id: '4r-building-name-labels', type: 'symbol', source: 'openmaptiles', 'source-layer': 'building', minzoom: 16,
+          filter: ['all', ['has', 'name'], ['!=', ['get', 'name'], '']],
+          layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 16, 9, 19, 12], 'text-anchor': 'center', 'text-max-width': 7, 'text-allow-overlap': false, 'symbol-placement': 'point' },
+          paint: { 'text-color': '#eee4f4', 'text-halo-color': '#332b3d', 'text-halo-width': 1.5, 'text-opacity': 0.95 }
+        });
+      }
       if (map.getSource('openmaptiles') && !map.getLayer('4r-building-outlines')) {
         map.addLayer({
           id: '4r-building-outlines',
@@ -115,8 +140,8 @@ export default function App() {
   }, [ready]);
 
   const goHome = useCallback(() => {
-    mapRef.current?.flyTo({ center: BATU_TIGA, zoom: 16.2, duration: 850 });
-    setCenterLabel('Batu Tiga, Shah Alam');
+    mapRef.current?.fitBounds(KLANG_VALLEY_BOUNDS, { padding: 36, duration: 900 });
+    setCenterLabel('Klang Valley');
   }, []);
 
   const locateMe = useCallback(() => {
@@ -141,8 +166,8 @@ export default function App() {
     try {
       const url = new URL(PHOTON_API);
       url.searchParams.set('q', query.trim());
-      url.searchParams.set('lat', String(BATU_TIGA[1]));
-      url.searchParams.set('lon', String(BATU_TIGA[0]));
+      url.searchParams.set('lat', String(KLANG_VALLEY_CENTER[1]));
+      url.searchParams.set('lon', String(KLANG_VALLEY_CENTER[0]));
       url.searchParams.set('limit', '5');
       const response = await fetch(url);
       if (!response.ok) throw new Error('Search request failed');
@@ -177,7 +202,7 @@ export default function App() {
       <div ref={mapNode} className="map-canvas" />
       <header className="topbar">
         <div className="brand-lockup"><div className="brand-mark">4</div><div><strong>4Riders</strong><span>CUSTOM MAP</span></div></div>
-        <div className="area-pill"><span className="live-dot" /> BATU TIGA PILOT</div>
+        <div className="area-pill"><span className="live-dot" /> KLANG VALLEY</div>
       </header>
 
       <form className="search-box" onSubmit={searchPlaces}>
@@ -192,7 +217,7 @@ export default function App() {
         <button className={buildingsOn ? 'map-action active' : 'map-action'} onClick={toggleBuildings} aria-label="Toggle building footprints"><Layers3 size={18}/><span>Buildings</span></button>
         <button className="map-action locate-action" onClick={locateMe} aria-label="Find my location"><Crosshair size={19}/></button>
       </div>
-      <button className="home-control" onClick={goHome}><MapPin size={15}/> Batu Tiga</button>
+      <button className="home-control" onClick={goHome}><MapPin size={15}/> Klang Valley</button>
 
       <section className={expanded ? 'bottom-sheet expanded' : 'bottom-sheet'}>
         <button className="sheet-handle" onClick={() => setExpanded(!expanded)} aria-label={expanded ? 'Collapse map panel' : 'Expand map panel'}>
@@ -211,7 +236,7 @@ export default function App() {
           <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
           <div className="detail-row"><span>Vector map source</span><b>OpenFreeMap</b></div>
           <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap footprints</b></div>
-          <div className="pilot-note"><b>Current milestone</b><p>Establish a reliable, zoomable base map for Batu Tiga. Real hotspot and delivery-zone layers will be connected only after we have verified rider and order data — no fabricated map markers.</p></div>
+          <div className="pilot-note"><b>Current milestone</b><p>Establish a reliable, zoomable Klang Valley base map. Real hotspot and delivery-zone layers will be connected only after we have verified rider and order data — no fabricated map markers.</p></div>
         </div>}
         <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
       </section>
