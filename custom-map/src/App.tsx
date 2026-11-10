@@ -487,8 +487,19 @@ export default function App() {
   const chooseResult = (feature: SearchFeature) => {
     const [lng, lat] = feature.geometry.coordinates;
     const p = feature.properties;
+    const placeLabel = [p.name, p.city, p.state].filter(Boolean).join(', ') || 'Selected place';
     mapRef.current?.flyTo({ center: [lng, lat], zoom: 17, duration: 900 });
-    setCenterLabel([p.name, p.city, p.state].filter(Boolean).join(', ') || 'Selected place');
+    if (pickingCoverageCenter) {
+      const nextCenter: [number, number] = [lng, lat];
+      coverageCenterRef.current = nextCenter;
+      setCoverageCenter(nextCenter);
+      setCoverageCenterLabel(placeLabel);
+      setPickingCoverageCenter(false);
+      setReachStatus('idle');
+      setReachMessage('Center updated. Recalculate to refresh the road coverage.');
+      setMessage('Coverage center selected from place search');
+    }
+    setCenterLabel(placeLabel);
     setQuery('');
     setResults([]);
   };
@@ -596,7 +607,7 @@ export default function App() {
         <small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small>
         <button className={pickingCoverageCenter ? 'coverage-pick active' : 'coverage-pick'} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? 'Tap the map to set center…' : 'Choose center on map'}</button>
         <span className="coverage-setting-label">ROAD DISTANCE · KM</span>
-        <div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /><input type="range" min="5" max="50" step="1" value={Math.min(50, coverageRadius)} onChange={(event) => setCoverageRadius(Number(event.target.value))} /></div>
+        <div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))} /></div>
         <div className="coverage-presets">{[10, 15, 20, 25, 30, 40, 50].map((value) => <button key={value} className={coverageRadius === value ? 'selected' : ''} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div>
         <button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === 'loading'}>{reachStatus === 'loading' ? 'Calculating…' : 'Apply & calculate coverage'}</button>
         <small className="coverage-footnote">Uses motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>
