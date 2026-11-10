@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import maplibregl, { type Map as MapLibreMap } from 'maplibre-gl';
 import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
 
@@ -93,7 +93,7 @@ export default function App() {
     );
   }, []);
 
-  const searchPlaces = async (event: React.FormEvent) => {
+  const searchPlaces = async (event: FormEvent) => {
     event.preventDefault();
     if (!query.trim()) return;
     setSearching(true);
