@@ -8,6 +8,8 @@ const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const PHOTON_API = 'https://photon.komoot.io/api/';
+const VALHALLA_ISODISTANCE_API = 'https://valhalla1.openstreetmap.de/isochrone';
+const MERCHANT_SQUARE: [number, number] = [101.5982, 3.1339];
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
@@ -35,6 +37,8 @@ export default function App() {
   const [searching, setSearching] = useState(false);
   const [message, setMessage] = useState('Loading Klang Valley map…');
   const [centerLabel, setCenterLabel] = useState('Klang Valley');
+  const [reachStatus, setReachStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [reachMessage, setReachMessage] = useState('');
 
   const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
     roadLookupAbort.current?.abort();
@@ -306,6 +310,32 @@ export default function App() {
       }
       scheduleNamedBuildings(map);
       map.on('moveend', () => scheduleNamedBuildings(map));
+      // Road-distance coverage overlay, calculated from the actual OSM road graph.
+      map.addSource('4r-road-reach', {
+        type: 'geojson',
+        data: { type: 'FeatureCollection', features: [] }
+      });
+      map.addLayer({
+        id: '4r-road-reach-fill', type: 'fill', source: '4r-road-reach',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'fill-color': '#b58ad8', 'fill-opacity': 0.22 }
+      });
+      map.addLayer({
+        id: '4r-road-reach-outline', type: 'line', source: '4r-road-reach',
+        filter: ['==', ['geometry-type'], 'Polygon'],
+        paint: { 'line-color': '#d8b5f4', 'line-width': 3, 'line-opacity': 0.95 }
+      });
+      map.addLayer({
+        id: '4r-road-reach-origin', type: 'circle', source: '4r-road-reach',
+        filter: ['==', ['geometry-type'], 'Point'],
+        paint: { 'circle-radius': 7, 'circle-color': '#f4d27b', 'circle-stroke-color': '#211a2a', 'circle-stroke-width': 2.5 }
+      });
+      map.addLayer({
+        id: '4r-road-reach-origin-label', type: 'symbol', source: '4r-road-reach',
+        filter: ['==', ['geometry-type'], 'Point'],
+        layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': true },
+        paint: { 'text-color': '#fff2d1', 'text-halo-color': '#211a2a', 'text-halo-width': 2 }
+      });
 
       // Road inspection reads only attributes actually supplied by the vector tile.
       map.on('click', (event) => {
@@ -425,7 +455,69 @@ export default function App() {
     setResults([]);
   };
 
-  const toggleBuildings = () => {
+  const toggleBuildings = () => {  const calculateRoadReach = async () => {
+    const map = mapRef.current;
+    if (!map || reachStatus === 'loading') return;
+    setReachStatus('loading');
+    setReachMessage('Calculating 30 km through the motorcycle road network…');
+    setMessage('Calculating real road-distance coverage…');
+    try {
+      const requestBody = {
+        locations: [{ lat: MERCHANT_SQUARE[1], lon: MERCHANT_SQUARE[0] }],
+        costing: 'motorcycle',
+        costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
+        contours: [{ distance: 30, color: 'b58ad8' }],
+        polygons: true,
+        denoise: 0.1,
+        generalize: 35,
+        units: 'kilometers',
+        show_locations: true
+      };
+      const response = await fetch(VALHALLA_ISODISTANCE_API, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(requestBody)
+      });
+      if (!response.ok) throw new Error(`Routing service returned ${response.status}`);
+      const geojson = await response.json() as {
+        type: 'FeatureCollection';
+        features?: Array<{ type: 'Feature'; geometry: { type: string; coordinates: unknown }; properties?: Record<string, unknown> }>;
+      };
+      const polygonFeatures = (geojson.features ?? []).filter((feature) => feature.geometry?.type === 'Polygon' || feature.geometry?.type === 'MultiPolygon');
+      if (!polygonFeatures.length) throw new Error('Routing service returned no reachable road area');
+      const collection = {
+        type: 'FeatureCollection' as const,
+        features: [
+          ...polygonFeatures,
+          { type: 'Feature' as const, geometry: { type: 'Point' as const, coordinates: MERCHANT_SQUARE }, properties: { label: 'MERCHANT SQUARE · START' } }
+        ]
+      };
+      const source = map.getSource('4r-road-reach') as maplibregl.GeoJSONSource | undefined;
+      if (!source) throw new Error('Map overlay is not ready yet');
+      source.setData(collection as GeoJSON.FeatureCollection);
+      const coords: number[][] = [];
+      const walk = (value: unknown): void => {
+        if (Array.isArray(value) && typeof value[0] === 'number' && typeof value[1] === 'number') coords.push(value as number[]);
+        else if (Array.isArray(value)) value.forEach(walk);
+      };
+      polygonFeatures.forEach((feature) => walk(feature.geometry.coordinates));
+      if (coords.length) {
+        const bounds = coords.reduce((acc, point) => acc.extend([point[0], point[1]]), new maplibregl.LngLatBounds());
+        map.fitBounds(bounds, { padding: { top: 115, right: 70, bottom: 250, left: 55 }, maxZoom: 11.7, duration: 1100 });
+      }
+      setReachStatus('ready');
+      setReachMessage('30 km road-distance boundary loaded · motorcycle profile');
+      setCenterLabel('30 km road coverage · Merchant Square');
+      setMessage('Coverage follows connected roads, not a straight-line circle');
+    } catch (error) {
+      console.error('[4Riders road-distance coverage]', error);
+      setReachStatus('error');
+      setReachMessage(error instanceof Error ? error.message : 'Unable to calculate road-distance coverage');
+      setMessage('Road-distance calculation failed · retry when routing service is available');
+    }
+  };
+
+
     const next = !buildingsOn;
     setBuildingsOn(next);
     const map = mapRef.current;
@@ -452,7 +544,8 @@ export default function App() {
         {results.length > 0 && <div className="search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => chooseResult(feature)}><MapPin size={15}/><span><b>{feature.properties.name || 'Unnamed place'}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(', ')}</small></span></button>)}</div>}
       </form>
 
-      <div className="map-actions">
+      <div className="map-actions">        <button className={reachStatus === 'ready' ? 'map-action reach-active' : 'map-action reach-action'} onClick={calculateRoadReach} disabled={reachStatus === 'loading'} aria-label="Calculate 30 kilometre road coverage"><MapPin size={18}/><span>{reachStatus === 'loading' ? 'Calculating…' : '30 km Road'}</span></button>
+
         <button className={buildingsOn ? 'map-action active' : 'map-action'} onClick={toggleBuildings} aria-label="Toggle building footprints"><Layers3 size={18}/><span>Buildings</span></button>
         <button className="map-action locate-action" onClick={locateMe} aria-label="Find my location"><Crosshair size={19}/></button>
       </div>
@@ -466,7 +559,8 @@ export default function App() {
           <div><span className="eyebrow">MAP AREA</span><h1>{centerLabel}</h1><p>{message}</p></div>
           <button className="expand-button" onClick={() => setExpanded(!expanded)} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button>
         </div>
-        {selectedRoad && <div className="road-inspector">
+        {selectedRoad && <div className="road-inspector">        {reachMessage && <div className="reach-note"><b>{reachStatus === 'ready' ? 'ROAD COVERAGE ACTIVE' : reachStatus === 'loading' ? 'ROUTING CALCULATION' : 'ROAD COVERAGE'}</b><span>{reachMessage}</span></div>}
+
           <div className="road-inspector-top"><span className="eyebrow">ROAD INSPECTOR</span><button type="button" onClick={() => setSelectedRoad(null)} aria-label="Close road details"><X size={15}/></button></div>
           <strong>{selectedRoad.name}</strong>
           <div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div>
