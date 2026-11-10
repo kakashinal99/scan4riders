@@ -93,3 +93,13 @@
 .dock-zoom{display:flex;gap:6px}.dock-zoom button{width:36px;height:36px;display:grid;place-items:center;border:1px solid #ffffff22;border-radius:10px;background:#ffffff0a;color:#eee8f5}
 .map-tool-panel .road-tags{margin:10px 0}
 @media(min-width:760px){.bottom-dock{left:50%;right:auto;bottom:18px;width:min(560px,calc(100vw - 40px));transform:translateX(-50%);padding:9px}.bottom-dock button{min-height:58px}.bottom-dock button span{font-size:10px}.map-tool-panel{left:50%;right:auto;bottom:100px;width:min(560px,calc(100vw - 40px));max-height:58vh;transform:translateX(-50%)}}
+
+
+/* Live rider position: a clear blue GPS dot with a heading arrow when available. */
+.user-location-marker{position:relative;width:46px;height:46px;display:grid;place-items:center;pointer-events:none}
+.user-location-pulse{position:absolute;width:36px;height:36px;border:2px solid rgba(74,170,255,.42);border-radius:50%;background:rgba(65,157,245,.16);box-shadow:0 0 0 5px rgba(65,157,245,.08)}
+.user-location-core{position:absolute;z-index:2;width:17px;height:17px;border:3px solid #fff;border-radius:50%;background:#3197f4;box-shadow:0 2px 10px #071629bb}
+.user-location-arrow{position:absolute;z-index:3;top:-1px;left:7px;width:32px;height:32px;overflow:visible;opacity:0;transform-origin:50% 50%;filter:drop-shadow(0 2px 3px #071629aa);transition:opacity .15s ease}
+.user-location-arrow path{fill:#f7fbff;stroke:#1879d0;stroke-width:1.5;stroke-linejoin:round}
+.user-location-marker.has-heading .user-location-arrow{opacity:1}
+.user-location-marker.has-heading .user-location-core{transform:scale(.72)}
