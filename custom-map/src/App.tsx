@@ -4,7 +4,7 @@ import { PMTiles, Protocol } from 'pmtiles';
 import { buildMapStyle } from './mapStyle';
 import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
-import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
+import { Crosshair, Layers3, MapPin, Minus, Plus, Search, X, Route, LocateFixed, Home } from 'lucide-react';
 
 const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
@@ -48,7 +48,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
-  const [topControlsCollapsed, setTopControlsCollapsed] = useState(true);
+  const [activePanel, setActivePanel] = useState<string | null>(null);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
@@ -378,6 +378,7 @@ export default function App() {
           access: String(props.access ?? 'Tiada sekatan direkodkan'),
           structure: String(props.brunnel ?? 'Permukaan biasa')
         });
+        setActivePanel('road');
         void lookupRoadTags(event.lngLat.lng, event.lngLat.lat, displayName, selectionKey);
       });
       // Do not call the archive loaded until vector tiles have actually loaded.
@@ -577,84 +578,24 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
-      <div className={"top-controls" + (topControlsCollapsed ? " collapsed" : "")}>
-      {ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
-      <header className="topbar">
-        <div className="brand-lockup"><div className="brand-mark">4</div><div><strong>4Riders</strong><span>CUSTOM MAP</span></div></div>
-        <div className="area-pill"><span className="live-dot" /> KLANG VALLEY</div>
-      </header>
-
-      <form className="search-box" onSubmit={searchPlaces}>
-        <Search size={18} />
-        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search places, roads or landmarks" aria-label="Search map" />
-        {query && <button type="button" className="icon-button clear-button" onClick={() => { setQuery(''); setResults([]); }} aria-label="Clear search"><X size={16}/></button>}
-        <button className="search-submit" type="submit" disabled={searching}>{searching ? '…' : 'Search'}</button>
-        {results.length > 0 && <div className="search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => chooseResult(feature)}><MapPin size={15}/><span><b>{feature.properties.name || 'Unnamed place'}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(', ')}</small></span></button>)}</div>}
-      </form>
-      </div>
-      <button className="top-controls-toggle" onClick={() => setTopControlsCollapsed((value) => !value)} aria-expanded={!topControlsCollapsed} aria-label={topControlsCollapsed ? "Show map controls" : "Hide map controls"}>
-        <Search size={16}/><span>{topControlsCollapsed ? "Search & route" : "Hide controls"}</span>{topControlsCollapsed ? <ChevronDown size={15}/> : <X size={15}/>}
-      </button>
-
-      <div className="map-actions">
-        <button className="map-action" onClick={() => setCoverageSettingsOpen((open) => !open)} aria-expanded={coverageSettingsOpen}><Crosshair size={18}/><span>Coverage Settings</span></button>
-        <button className={reachStatus === 'ready' ? 'map-action reach-active' : 'map-action reach-action'} onClick={calculateRoadReach} disabled={reachStatus === 'loading'} aria-label={`Calculate ${coverageRadius} kilometre road coverage`}><MapPin size={18}/><span>{reachStatus === 'loading' ? 'Calculating…' : `${coverageRadius} km Road`}</span></button>
-
-        <button className={buildingsOn ? 'map-action active' : 'map-action'} onClick={toggleBuildings} aria-label="Toggle building footprints"><Layers3 size={18}/><span>Buildings</span></button>
-        <button className="map-action locate-action" onClick={locateMe} aria-label="Find my location"><Crosshair size={19}/></button>
-      </div>
-      {coverageSettingsOpen && <section className="coverage-settings">
-        <div className="coverage-settings-heading"><b>ROAD COVERAGE SETTINGS</b><button onClick={() => setCoverageSettingsOpen(false)} aria-label="Close coverage settings"><X size={15}/></button></div>
-        <span className="coverage-setting-label">CENTER POINT</span>
-        <strong className="coverage-center-name">{coverageCenterLabel}</strong>
-        <small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small>
-        <button className={pickingCoverageCenter ? 'coverage-pick active' : 'coverage-pick'} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? 'Tap the map to set center…' : 'Choose center on map'}</button>
-        <span className="coverage-setting-label">ROAD DISTANCE · KM</span>
-        <div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} /><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))} /></div>
-        <div className="coverage-presets">{[10, 15, 20, 25, 30, 40, 50].map((value) => <button key={value} className={coverageRadius === value ? 'selected' : ''} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div>
-        <button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === 'loading'}>{reachStatus === 'loading' ? 'Calculating…' : 'Apply & calculate coverage'}</button>
-        <small className="coverage-footnote">Uses motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>
+      {activePanel && <section className="map-tool-panel">
+        <div className="map-tool-panel-head"><span>{activePanel === "search" ? "SEARCH PLACES" : activePanel === "route" ? "MOTORCYCLE NAVIGATION" : activePanel === "coverage" ? "ROAD COVERAGE SETTINGS" : activePanel === "road" ? "ROAD DETAILS" : "MAP SETTINGS"}</span><button onClick={() => { setActivePanel(null); setPickingCoverageCenter(false); }} aria-label="Close options"><X size={18}/></button></div>
+        {activePanel === "search" && <><form className="dock-search-form" onSubmit={searchPlaces}><Search size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search places, roads or landmarks" aria-label="Search map"/>{query && <button type="button" onClick={() => { setQuery(""); setResults([]); }} aria-label="Clear search"><X size={15}/></button>}<button type="submit" disabled={searching}>{searching ? "…" : "Search"}</button></form>{results.length > 0 && <div className="dock-search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => { chooseResult(feature); setActivePanel(null); }}><MapPin size={15}/><span><b>{feature.properties.name || "Unnamed place"}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(", ")}</small></span></button>)}</div>}</>}
+        {activePanel === "route" && ready && mapRef.current && <RoutePlanner map={mapRef.current}/ >}
+        {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
+        {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
+        {activePanel === "layers" && <><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
+        {activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
-      <button className="home-control" onClick={goHome}><MapPin size={15}/> Klang Valley</button>
-
-      <section className={`bottom-sheet${expanded ? ' expanded' : ''}${sheetCollapsed ? ' collapsed' : ''}`}>
-        <button className="sheet-handle" onClick={() => { setSheetCollapsed(false); setExpanded(false); }} aria-label="Show map information panel">
-          <span />
-        </button>
-        <div className="sheet-heading">
-          <div><span className="eyebrow">MAP AREA</span><h1>{centerLabel}</h1><p>{message}</p></div>
-          <div className="sheet-controls"><button className="sheet-minimize" onClick={() => { setSheetCollapsed(true); setExpanded(false); }} aria-label="Hide map information panel"><ChevronDown size={19}/></button><button className="expand-button" onClick={() => { setSheetCollapsed(false); setExpanded(!expanded); }} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button></div>
-        </div>
-        {reachMessage && <div className="reach-note"><b>{reachStatus === 'ready' ? 'ROAD COVERAGE ACTIVE' : reachStatus === 'loading' ? 'ROUTING CALCULATION' : 'ROAD COVERAGE'}</b><span>{reachMessage}</span></div>}
-        {selectedRoad && <div className="road-inspector">
-
-          <div className="road-inspector-top"><span className="eyebrow">ROAD INSPECTOR</span><button type="button" onClick={() => setSelectedRoad(null)} aria-label="Close road details"><X size={15}/></button></div>
-          <strong>{selectedRoad.name}</strong>
-          <div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div>
-          <div className="road-detail-grid">
-            <div><span>Surface</span><b>{selectedRoad.surface}</b></div>
-            <div><span>Access</span><b>{selectedRoad.access}</b></div>
-            <div><span>Structure</span><b>{selectedRoad.structure}</b></div>
-            <div><span>Lane count</span><b>{selectedRoad.lanes}</b></div>
-          </div>
-        </div>}
-        <div className="quick-stats">
-          <div><span className="stat-value">{buildingCount === null ? '—' : buildingCount.toLocaleString()}</span><span className="stat-label">Visible buildings</span></div>
-          <div><span className="stat-value">16.2</span><span className="stat-label">Target zoom</span></div>
-          <div><span className="stat-value">OSM</span><span className="stat-label">Map data</span></div>
-        </div>
-        {expanded && <div className="sheet-details">
-          <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
-          <div className="detail-row"><span>Vector map source</span><b>4Riders Klang Valley PMTiles</b></div>
-          <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
-          <div className="detail-row"><span>Named building footprints</span><b>{namedBuildingCount === null ? 'Zoom to street level to load' : namedBuildingCount.toLocaleString()}</b></div>
-          <div className="detail-row"><span>Road direction</span><b>Vector tile + raw OSM tags where available</b></div>
-          <div className="detail-row"><span>Lane data</span><b>Raw OSM lanes tag when mapped; otherwise marked unavailable</b></div>
-          <div className="pilot-note"><b>Current milestone</b><p>Building names are rendered from the vector-tile building layer at street-level zoom. Coverage depends on OSM name tags; lane counts still use a separate OSM tag lookup.</p></div>
-        </div>}
-        <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
-      </section>
-      <div className="zoom-controls"><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={18}/></button><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={18}/></button></div>
+      <nav className="bottom-dock" aria-label="Map tools">
+        <button className={activePanel === "search" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "search" ? null : "search")}><Search size={19}/><span>Search</span></button>
+        <button className={activePanel === "route" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "route" ? null : "route")}><Route size={19}/><span>Route</span></button>
+        <button className={activePanel === "coverage" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "coverage" ? null : "coverage")}><Crosshair size={19}/><span>Coverage</span></button>
+        <button className={activePanel === "layers" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "layers" ? null : "layers")}><Layers3 size={19}/><span>Layers</span></button>
+        <button onClick={() => { setActivePanel(null); locateMe(); }}><LocateFixed size={19}/><span>Locate</span></button>
+        <button onClick={() => { setActivePanel(null); goHome(); }}><Home size={19}/><span>Home</span></button>
+      </nav>
+      <div className="map-status-pill"><span className={ready ? "status-dot ready" : "status-dot"}/>{ready ? "4R MAP READY" : "LOADING MAP"}</div>
     </main>
   );
 }
