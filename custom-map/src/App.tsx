@@ -14,6 +14,30 @@ maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 const PHOTON_API = 'https://photon.komoot.io/api/';
 const VALHALLA_ISODISTANCE_API = 'https://valhalla1.openstreetmap.de/isochrone';
 
+const COVERAGE_SETTINGS_KEY = '4riders.custom-map.coverage.v1';
+type SavedCoverageSettings = { radius: number; center: [number, number]; label: string };
+function readCoverageSettings(): SavedCoverageSettings {
+  const fallback: SavedCoverageSettings = {
+    radius: 30,
+    center: KLANG_VALLEY_CENTER,
+    label: 'Klang Valley default center'
+  };
+  try {
+    const raw = window.localStorage.getItem(COVERAGE_SETTINGS_KEY);
+    if (!raw) return fallback;
+    const saved = JSON.parse(raw) as Partial<SavedCoverageSettings>;
+    const radius = Number(saved.radius);
+    const center = saved.center;
+    if (!Number.isFinite(radius) || radius < 1 || radius > 100 ||
+        !Array.isArray(center) || center.length !== 2 ||
+        !Number.isFinite(center[0]) || !Number.isFinite(center[1]) ||
+        typeof saved.label !== 'string') return fallback;
+    return { radius, center: [center[0], center[1]], label: saved.label };
+  } catch {
+    return fallback;
+  }
+}
+
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
@@ -44,14 +68,26 @@ export default function App() {
   const [reachStatus, setReachStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [reachMessage, setReachMessage] = useState('');
   const [coverageSettingsOpen, setCoverageSettingsOpen] = useState(false);
-  const [coverageRadius, setCoverageRadius] = useState(30);
-  const [coverageCenter, setCoverageCenter] = useState<[number, number]>(KLANG_VALLEY_CENTER);
-  const [coverageCenterLabel, setCoverageCenterLabel] = useState('Klang Valley default center');
+  const [initialCoverageSettings] = useState(readCoverageSettings);
+  const [coverageRadius, setCoverageRadius] = useState(initialCoverageSettings.radius);
+  const [coverageCenter, setCoverageCenter] = useState<[number, number]>(initialCoverageSettings.center);
+  const [coverageCenterLabel, setCoverageCenterLabel] = useState(initialCoverageSettings.label);
   const [pickingCoverageCenter, setPickingCoverageCenter] = useState(false);
   const pickingCoverageCenterRef = useRef(false);
   const coverageCenterRef = useRef<[number, number]>(KLANG_VALLEY_CENTER);
   useEffect(() => { pickingCoverageCenterRef.current = pickingCoverageCenter; }, [pickingCoverageCenter]);
   useEffect(() => { coverageCenterRef.current = coverageCenter; }, [coverageCenter]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COVERAGE_SETTINGS_KEY, JSON.stringify({
+        radius: coverageRadius,
+        center: coverageCenter,
+        label: coverageCenterLabel
+      }));
+    } catch (error) {
+      console.warn('[4Riders coverage settings] Could not persist settings', error);
+    }
+  }, [coverageRadius, coverageCenter, coverageCenterLabel]);
 
   const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
     roadLookupAbort.current?.abort();
