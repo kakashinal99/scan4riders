@@ -53,7 +53,7 @@ export default function App() {
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const gpsWatchId = useRef<number | null>(null);
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const gpsArrowRef = useRef<HTMLElement | null>(null);
+  const gpsArrowRef = useRef<SVGElement | null>(null);
   const lastGpsFixAt = useRef<number>(0);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
@@ -487,7 +487,7 @@ export default function App() {
             markerElement.className = 'user-location-marker';
             markerElement.setAttribute('aria-label', 'Your current location');
             markerElement.innerHTML = '<span class="user-location-pulse"></span><span class="user-location-core"></span><svg class="user-location-arrow" viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2.5 25.5 27 16 21.5 6.5 27Z" /></svg>';
-            gpsArrowRef.current = markerElement.querySelector('.user-location-arrow');
+            gpsArrowRef.current = markerElement.querySelector<SVGElement>('.user-location-arrow');
             gpsMarkerRef.current = new maplibregl.Marker({ element: markerElement, anchor: 'center' })
               .setLngLat(position)
               .addTo(activeMap);
