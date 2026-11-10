@@ -82,7 +82,7 @@ jobs:
           STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
             -H 'Origin: https://fourriders-custom-map.onrender.com' \
             -H 'Range: bytes=0-15' "$URL")"
-          awk 'BEGIN { RS="\\r\\n\\r\\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
+          awk 'BEGIN { RS="\r\n\r\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
           echo "Final HTTP status: $STATUS"
           cat "$FINAL_HEADERS"
           test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
