@@ -20,7 +20,8 @@ npm run dev
 - Interactive vector map centred on Batu Tiga KTM station area
 - Pan, zoom, recenter, device GPS
 - Place search with Photon
-- Uniform muted-purple building footprint styling when the provider style exposes building fill layers
+- Uniform muted-purple 2D building footprints from the vector building layer
+- Building-name labels rendered from vector-tile building attributes (no separate live Overpass request)
 - Responsive collapsed/expanded bottom information panel
 - No synthetic hotspots or invented delivery-zone polygons
 
@@ -28,7 +29,7 @@ npm run dev
 Map tiles/styles are provided by OpenFreeMap; underlying map data is from OpenStreetMap. Keep attribution visible in the application. Photon is used for search. Review each provider's current usage and attribution terms before production launch.
 
 ## Next implementation stages
-1. Verify building layer IDs and geometry coverage across Batu Tiga at street zoom.
+1. Verify building layer IDs, named-building coverage and footprint geometry across Batu Tiga at street zoom.
 2. Establish a versioned local PostGIS dataset for the pilot area.
 3. Add surveyed/verified operational boundaries.
 4. Add hotspots from actual order and rider activity, with privacy-safe aggregation.
