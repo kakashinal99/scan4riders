@@ -455,7 +455,7 @@ export default function App() {
     setResults([]);
   };
 
-  const toggleBuildings = () => {  const calculateRoadReach = async () => {
+  const calculateRoadReach = async () => {
     const map = mapRef.current;
     if (!map || reachStatus === 'loading') return;
     setReachStatus('loading');
@@ -517,7 +517,7 @@ export default function App() {
     }
   };
 
-
+  const toggleBuildings = () => {
     const next = !buildingsOn;
     setBuildingsOn(next);
     const map = mapRef.current;
