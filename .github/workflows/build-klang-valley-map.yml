@@ -1,6 +1,7 @@
 name: Build Klang Valley map data
 
-# Trusted branch pushes publish the verified PMTiles archive as a public release.
+# Trusted branch pushes publish the PMTiles archive; every event verifies that the
+# currently published release is readable by browsers using HTTP byte ranges + CORS.
 on:
   pull_request:
     paths:
@@ -69,8 +70,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # On pull requests this checks the currently published asset without publishing.
+      # On trusted pushes it runs after the release upload and checks the new archive.
       - name: Verify published PMTiles browser range access
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
         shell: bash
         run: |
           set -euo pipefail
@@ -82,7 +84,7 @@ jobs:
           STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
             -H 'Origin: https://fourriders-custom-map.onrender.com' \
             -H 'Range: bytes=0-15' "$URL")"
-          awk 'BEGIN { RS="\r\n\r\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
+          awk 'BEGIN { RS="\\r\\n\\r\\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
           echo "Final HTTP status: $STATUS"
           cat "$FINAL_HEADERS"
           test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
