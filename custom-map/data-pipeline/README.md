@@ -29,7 +29,7 @@ Requirements: Docker, Osmium Tool, curl, md5sum, and at least 8 GB RAM plus 10 G
 
 ```bash
 cd custom-map/data-pipeline
-./build.sh
+bash build.sh
 ```
 
 Output:
