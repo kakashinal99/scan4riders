@@ -1,5 +1,6 @@
 name: Build Klang Valley map data
 
+# Trusted branch pushes publish the verified PMTiles archive as a public release.
 on:
   pull_request:
     paths:
