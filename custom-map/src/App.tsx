@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
-import { Protocol } from 'pmtiles';
+import { PMTiles, Protocol } from 'pmtiles';
 import { buildMapStyle } from './mapStyle';
 import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
@@ -8,7 +8,7 @@ import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search
 
 const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
-const PMTILES_URL = (import.meta.env.VITE_PMTILES_URL?.trim() || 'https://github.com/kakashinal99/scan4riders/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles').trim();
+const PMTILES_URL = import.meta.env.VITE_PMTILES_URL?.trim() ?? '';
 const pmtilesProtocol = new Protocol();
 maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 const PHOTON_API = 'https://photon.komoot.io/api/';
@@ -147,31 +147,65 @@ export default function App() {
     const container = mapNode.current;
     if (!container || mapRef.current) return;
 
-    const map = new maplibregl.Map({
-      container,
-      style: buildMapStyle(PMTILES_URL),
-      center: initialCoverageSettings.center,
-      zoom: 10.6,
-      minZoom: 9.4,
-      maxBounds: KLANG_VALLEY_BOUNDS,
-      maxZoom: 20,
-      attributionControl: false,
-      pitchWithRotate: false,
-      dragRotate: false,
-      touchPitch: false,
-      trackResize: true
-    });
-    mapRef.current = map;
+    let disposed = false;
+    let map: MapLibreMap | null = null;
+    let resizeObserver: ResizeObserver | null = null;
+
+    const startMap = async () => {
+      if (!PMTILES_URL) {
+        setMessage('Map archive is not configured · set VITE_PMTILES_URL to the hosted Klang Valley PMTiles file');
+        return;
+      }
+      try {
+        // Check the actual archive before telling the UI that map data is ready.
+        // A MapLibre "load" event only means the style loaded; it does not prove
+        // that the PMTiles archive contains usable vector tiles.
+        const archive = new PMTiles(PMTILES_URL);
+        const [header, rawMetadata] = await Promise.all([archive.getHeader(), archive.getMetadata()]);
+        if (disposed) return;
+        if (header.tileType !== 1) throw new Error('Archive is not an MVT vector-tile PMTiles file');
+        const metadata = rawMetadata as { vector_layers?: Array<{ id?: string }> };
+        const layerIds = new Set((metadata.vector_layers ?? []).map((layer) => layer.id).filter(Boolean));
+        const requiredLayers = ['transportation', 'building'];
+        const missingLayers = requiredLayers.filter((id) => !layerIds.has(id));
+        if (missingLayers.length) {
+          throw new Error(`Archive is missing required vector layers: ${missingLayers.join(', ')}`);
+        }
+
+        map = new maplibregl.Map({
+          container,
+          style: buildMapStyle(PMTILES_URL),
+          center: initialCoverageSettings.center,
+          zoom: 10.6,
+          minZoom: 9.4,
+          maxBounds: KLANG_VALLEY_BOUNDS,
+          maxZoom: 20,
+          attributionControl: false,
+          pitchWithRotate: false,
+          dragRotate: false,
+          touchPitch: false,
+          trackResize: true
+        });
+        mapRef.current = map;
+      } catch (error) {
+        if (!disposed) {
+          const detail = error instanceof Error ? error.message : 'Unknown archive error';
+          console.error('[4Riders PMTiles preflight]', error);
+          setMessage(`PMTiles archive check failed · ${detail}`);
+        }
+        return;
+      }
+      if (disposed || !map) return;
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
     // Mobile browsers can report an incomplete container size on first paint.
     // Observe the actual map element and explicitly resize after layout settles.
-    const resizeObserver = new ResizeObserver(() => map.resize());
+    resizeObserver = new ResizeObserver(() => map?.resize());
     resizeObserver.observe(container);
-    requestAnimationFrame(() => map.resize());
+    requestAnimationFrame(() => map?.resize());
 
     map.on('load', () => {
-      requestAnimationFrame(() => map.resize());
+      requestAnimationFrame(() => map?.resize());
       const layers = map.getStyle().layers ?? [];
       let count = 0;
       // Keep the road hierarchy legible and visually distinct at every useful zoom.
@@ -343,21 +377,45 @@ export default function App() {
         });
         void lookupRoadTags(event.lngLat.lng, event.lngLat.lat, displayName, selectionKey);
       });
-      setMessage('4Riders Klang Valley PMTiles loaded · tap a road to inspect direction');
-      setReady(true);
-      refreshBuildingCount(map);
+      // Do not call the archive loaded until vector tiles have actually loaded.
+      setMessage('PMTiles archive verified · waiting for map tiles…');
+      const verifyRenderedTiles = () => {
+        if (!map || disposed) return;
+        const sourceLoaded = map.isSourceLoaded('openmaptiles');
+        if (!sourceLoaded) return;
+        const roadFeatures = map.queryRenderedFeatures({ layers: ['roads'] }).length;
+        const buildingFeatures = map.queryRenderedFeatures({ layers: ['building-fill'] }).length;
+        if (roadFeatures > 0 || buildingFeatures > 0) {
+          setMessage(`4Riders map tiles rendered · ${roadFeatures.toLocaleString()} road segments · ${buildingFeatures.toLocaleString()} buildings`);
+          setReady(true);
+          refreshBuildingCount(map);
+          map.off('idle', verifyRenderedTiles);
+        }
+      };
+      map.on('idle', verifyRenderedTiles);
+      verifyRenderedTiles();
     });
     map.on('error', (event) => {
       if (event.error) {
         console.error('[4Riders map]', event.error);
         setMessage(`Map tile error · ${event.error.message || 'PMTiles request failed'}`);
+        setReady(false);
       }
     });
 
     return () => {
-      resizeObserver.disconnect();
+      disposed = true;
+      resizeObserver?.disconnect();
       roadLookupAbort.current?.abort();
-      map.remove();
+      map?.remove();
+      mapRef.current = null;
+    };
+    void startMap();
+    return () => {
+      disposed = true;
+      resizeObserver?.disconnect();
+      roadLookupAbort.current?.abort();
+      map?.remove();
       mapRef.current = null;
     };
   }, []);
