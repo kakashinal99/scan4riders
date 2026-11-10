@@ -9,6 +9,7 @@ const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
 const PHOTON_API = 'https://photon.komoot.io/api/';
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
+type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string };
 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -17,6 +18,7 @@ export default function App() {
   const [expanded, setExpanded] = useState(false);
   const [buildingsOn, setBuildingsOn] = useState(true);
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
+  const [selectedRoad, setSelectedRoad] = useState<RoadSelection | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchFeature[]>([]);
   const [searching, setSearching] = useState(false);
@@ -82,12 +84,27 @@ export default function App() {
           map.setPaintProperty(layer.id, 'line-opacity', 0.8);
         }
       });
-      if (map.getSource('openmaptiles') && !map.getLayer('4r-building-name-labels')) {
+      // OpenMapTiles transportation schema exposes oneway=1/-1. Draw arrows only
+      // where direction is explicitly present; never infer direction from road class.
+      if (map.getSource('openmaptiles') && !map.getLayer('4r-road-direction-arrows')) {
         map.addLayer({
-          id: '4r-building-name-labels', type: 'symbol', source: 'openmaptiles', 'source-layer': 'building', minzoom: 16,
-          filter: ['all', ['has', 'name'], ['!=', ['get', 'name'], '']],
-          layout: { 'text-field': ['get', 'name'], 'text-font': ['Noto Sans Regular'], 'text-size': ['interpolate', ['linear'], ['zoom'], 16, 9, 19, 12], 'text-anchor': 'center', 'text-max-width': 7, 'text-allow-overlap': false, 'symbol-placement': 'point' },
-          paint: { 'text-color': '#eee4f4', 'text-halo-color': '#332b3d', 'text-halo-width': 1.5, 'text-opacity': 0.95 }
+          id: '4r-road-direction-arrows',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'transportation',
+          minzoom: 15,
+          filter: ['all', ['has', 'oneway'], ['!=', ['get', 'oneway'], 0]],
+          layout: {
+            'symbol-placement': 'line',
+            'symbol-spacing': 150,
+            'text-field': '➤',
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 12,
+            'text-keep-upright': false,
+            'text-rotation-alignment': 'map',
+            'text-rotate': ['case', ['==', ['get', 'oneway'], -1], 180, 0]
+          },
+          paint: { 'text-color': '#f2d8ff', 'text-halo-color': '#30263b', 'text-halo-width': 1.4 }
         });
       }
       if (map.getSource('openmaptiles') && !map.getLayer('4r-building-outlines')) {
@@ -105,7 +122,39 @@ export default function App() {
         });
         count++;
       }
-      setMessage(count ? 'Map data loaded' : 'Map loaded · building layer not detected in this style');
+      // Road inspection reads only attributes actually supplied by the vector tile.
+      map.on('click', (event) => {
+        const roadLayerIds = (map.getStyle().layers ?? [])
+          .filter((layer) => layer.type === 'line' && (layer.id.toLowerCase().includes('transportation') || layer.id.toLowerCase().includes('road')))
+          .map((layer) => layer.id);
+        if (!roadLayerIds.length) { setSelectedRoad(null); return; }
+        const pad = 9;
+        const box: [[number, number], [number, number]] = [
+          [event.point.x - pad, event.point.y - pad],
+          [event.point.x + pad, event.point.y + pad]
+        ];
+        const candidates = map.queryRenderedFeatures(box, { layers: roadLayerIds });
+        const road = candidates.find((feature) => feature.sourceLayer === 'transportation') ?? candidates[0];
+        if (!road) { setSelectedRoad(null); return; }
+        const props = road.properties ?? {};
+        const nearbyLabels = map.queryRenderedFeatures(box).filter((feature) => feature.sourceLayer === 'transportation_name');
+        const label = nearbyLabels.find((feature) => feature.properties?.name || feature.properties?.ref)?.properties;
+        const oneWayValue = props.oneway === undefined || props.oneway === null ? null : Number(props.oneway);
+        const direction = oneWayValue === 1 ? 'Sehala · ikut arah jalan' :
+          oneWayValue === -1 ? 'Sehala · arah bertentangan' :
+          oneWayValue === 0 ? 'Dua hala' : 'Maklumat arah tiada';
+        const className = String(props.class ?? 'road').replaceAll('_', ' ');
+        const displayName = String(label?.name || label?.ref || props.name || props.ref || 'Jalan tanpa nama');
+        setSelectedRoad({
+          name: displayName,
+          roadClass: className,
+          direction,
+          surface: String(props.surface ?? 'Tidak direkodkan'),
+          access: String(props.access ?? 'Tiada sekatan direkodkan'),
+          structure: String(props.brunnel ?? 'Permukaan biasa')
+        });
+      });
+      setMessage(count ? 'Map data loaded · tap a road to inspect direction' : 'Map loaded · building layer not detected in this style');
       setReady(true);
       refreshBuildingCount(map);
     });
@@ -227,6 +276,17 @@ export default function App() {
           <div><span className="eyebrow">MAP AREA</span><h1>{centerLabel}</h1><p>{message}</p></div>
           <button className="expand-button" onClick={() => setExpanded(!expanded)} aria-label="Expand or collapse panel">{expanded ? <ChevronDown/> : <ChevronUp/>}</button>
         </div>
+        {selectedRoad && <div className="road-inspector">
+          <div className="road-inspector-top"><span className="eyebrow">ROAD INSPECTOR</span><button type="button" onClick={() => setSelectedRoad(null)} aria-label="Close road details"><X size={15}/></button></div>
+          <strong>{selectedRoad.name}</strong>
+          <div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div>
+          <div className="road-detail-grid">
+            <div><span>Surface</span><b>{selectedRoad.surface}</b></div>
+            <div><span>Access</span><b>{selectedRoad.access}</b></div>
+            <div><span>Structure</span><b>{selectedRoad.structure}</b></div>
+            <div><span>Lane count</span><b>Not exposed by current tiles</b></div>
+          </div>
+        </div>}
         <div className="quick-stats">
           <div><span className="stat-value">{buildingCount === null ? '—' : buildingCount.toLocaleString()}</span><span className="stat-label">Visible buildings</span></div>
           <div><span className="stat-value">16.2</span><span className="stat-label">Target zoom</span></div>
@@ -235,8 +295,10 @@ export default function App() {
         {expanded && <div className="sheet-details">
           <div className="detail-row"><span>Map engine</span><b>MapLibre GL</b></div>
           <div className="detail-row"><span>Vector map source</span><b>OpenFreeMap</b></div>
-          <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap footprints</b></div>
-          <div className="pilot-note"><b>Current milestone</b><p>Establish a reliable, zoomable Klang Valley base map. Real hotspot and delivery-zone layers will be connected only after we have verified rider and order data — no fabricated map markers.</p></div>
+          <div className="detail-row"><span>Building geometry</span><b>OpenStreetMap 2D footprints</b></div>
+          <div className="detail-row"><span>Building names</span><b>Needs a separate named-building data layer</b></div>
+          <div className="detail-row"><span>Road direction</span><b>OSM oneway attribute where available</b></div>
+          <div className="pilot-note"><b>Current milestone</b><p>Establish a reliable, zoomable Klang Valley base map. Tap roads to inspect mapped direction and access data. Lane counts and building-name placement need richer source data; no missing attributes are guessed.</p></div>
         </div>}
         <div className="sheet-footer"><span className={ready ? 'status-dot ready' : 'status-dot'} />{ready ? 'Map renderer ready' : 'Connecting to map data'}<span className="footer-version">4R MAP · 0.1.0</span></div>
       </section>
