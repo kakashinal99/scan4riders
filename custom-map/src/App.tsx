@@ -402,6 +402,7 @@ export default function App() {
         setReady(false);
       }
     });
+    };
 
     void startMap();
     return () => {
