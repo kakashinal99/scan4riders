@@ -235,7 +235,7 @@ export default function App() {
         }
         return nextStyle;
       },
-      center: KLANG_VALLEY_CENTER,
+      center: initialCoverageSettings.center,
       zoom: 10.6,
       minZoom: 9.4,
       maxBounds: KLANG_VALLEY_BOUNDS,
@@ -508,8 +508,8 @@ export default function App() {
     try {
       const url = new URL(PHOTON_API);
       url.searchParams.set('q', query.trim());
-      url.searchParams.set('lat', String(KLANG_VALLEY_CENTER[1]));
-      url.searchParams.set('lon', String(KLANG_VALLEY_CENTER[0]));
+      url.searchParams.set('lat', String(coverageCenter[1]));
+      url.searchParams.set('lon', String(coverageCenter[0]));
       url.searchParams.set('limit', '5');
       const response = await fetch(url);
       if (!response.ok) throw new Error('Search request failed');
