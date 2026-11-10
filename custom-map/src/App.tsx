@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import * as maplibregl from 'maplibre-gl';
+import { Protocol } from 'pmtiles';
 import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search, X } from 'lucide-react';
@@ -7,6 +8,9 @@ import { ChevronDown, ChevronUp, Crosshair, Layers3, MapPin, Minus, Plus, Search
 const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
 const MAP_STYLE = 'https://tiles.openfreemap.org/styles/dark';
+const PMTILES_URL = import.meta.env.VITE_PMTILES_URL?.trim();
+const pmtilesProtocol = new Protocol();
+maplibregl.addProtocol('pmtiles', pmtilesProtocol.tile);
 const PHOTON_API = 'https://photon.komoot.io/api/';
 const VALHALLA_ISODISTANCE_API = 'https://valhalla1.openstreetmap.de/isochrone';
 const MERCHANT_SQUARE: [number, number] = [101.5982, 3.1339];
@@ -173,6 +177,19 @@ export default function App() {
     const map = new maplibregl.Map({
       container,
       style: MAP_STYLE,
+      transformStyle: (_previousStyle, nextStyle) => {
+        // When a hosted archive URL is configured, keep the renderer's
+        // OpenMapTiles-compatible style but serve all vector data from our
+        // own versioned Klang Valley PMTiles archive.
+        if (PMTILES_URL && nextStyle.sources?.openmaptiles) {
+          nextStyle.sources.openmaptiles = {
+            type: 'vector',
+            url: `pmtiles://${PMTILES_URL}`,
+            attribution: '© OpenStreetMap contributors'
+          };
+        }
+        return nextStyle;
+      },
       center: KLANG_VALLEY_CENTER,
       zoom: 10.6,
       minZoom: 9.4,
@@ -373,7 +390,7 @@ export default function App() {
         });
         void lookupRoadTags(event.lngLat.lng, event.lngLat.lat, displayName, selectionKey);
       });
-      setMessage(count ? 'Map data loaded · tap a road to inspect direction' : 'Map loaded · building layer not detected in this style');
+      setMessage(PMTILES_URL ? 'Klang Valley PMTiles loaded · tap a road to inspect direction' : (count ? 'Map data loaded · external basemap fallback · tap a road to inspect direction' : 'Map loaded · building layer not detected in this style'));
       setReady(true);
       refreshBuildingCount(map);
     });
