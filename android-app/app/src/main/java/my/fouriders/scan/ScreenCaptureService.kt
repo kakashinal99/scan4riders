@@ -91,7 +91,7 @@ class ScreenCaptureService : Service() {
                         }
                         .addOnCompleteListener { bitmap.recycle(); processing.set(false) }
                 } catch (_: Exception) {
-                    if (!image.isClosed) image.close()
+                    runCatching { image.close() }
                     processing.set(false)
                 }
             }, handler)
