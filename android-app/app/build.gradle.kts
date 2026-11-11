@@ -17,6 +17,15 @@ android {
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF\"")
     }
 
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     buildFeatures { buildConfig = true }
 }
 
