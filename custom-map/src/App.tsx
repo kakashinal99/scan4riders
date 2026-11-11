@@ -212,6 +212,7 @@ export default function App() {
       const nativeGps = nativeGpsRef.current;
       const routeOriginKey = nativeGps ? ':' + nativeGps.latitude.toFixed(3) + ',' + nativeGps.longitude.toFixed(3) : '';
       const routeKey = routeOrder ? String(routeOrder.id) + routeOriginKey : '';
+      let routeStatusLabel = '';
       if (!routeKey) {
         lastCloudRouteKeyRef.current = '';
         const emptyRoute: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -259,6 +260,7 @@ export default function App() {
             const slow = intervals.filter((item) => item.speed === 'SLOW').length;
             const trafficLabel = jam ? 'Heavy traffic' : slow ? 'Slow traffic' : intervals.length ? 'Normal traffic' : 'Traffic status unavailable';
             const minutes = Math.max(1, Math.round(Number.parseFloat(trafficData.duration ?? '0s') / 60));
+            routeStatusLabel = 'Live traffic · ' + trafficLabel + ' · ETA ' + minutes + ' min';
             setMessage('Live traffic · ' + trafficLabel + ' · ETA ' + minutes + ' min');
             if (coordinates.length > 1 && mapRef.current) {
               const bounds = coordinates.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
@@ -300,7 +302,7 @@ export default function App() {
             };
             pendingCloudRouteRef.current = routeCollection;
             (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(routeCollection);
-            setMessage('Motorcycle route ready · live traffic unavailable');
+            routeStatusLabel = 'Motorcycle route ready · live traffic unavailable';
             if (coordinates.length > 1 && mapRef.current) {
               const bounds = coordinates.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
               mapRef.current.fitBounds(bounds, { padding: { top: 90, right: 55, bottom: 190, left: 55 }, maxZoom: 16, duration: 850 });
@@ -310,12 +312,9 @@ export default function App() {
             lastCloudRouteKeyRef.current = '';
           }
         }
-          console.warn('[4Riders cloud order route]', routeError);
-          lastCloudRouteKeyRef.current = '';
-        }
       }
 
-      setMessage(`Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
+      setMessage(routeStatusLabel || `Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
     } catch (error) {
       console.warn('[4Riders cloud orders]', error);
       setMessage('Cloud order sync unavailable · local map remains available');
