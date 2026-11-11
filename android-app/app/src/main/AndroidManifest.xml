@@ -9,7 +9,7 @@
     <application
         android:allowBackup="false"
         android:label="4Riders"
-        android:theme="@android:style/Theme.Material.NoActionBar"
+        android:theme="@style/Theme.AppCompat.NoActionBar"
         android:usesCleartextTraffic="false">
         <activity
             android:name=".MainActivity"
