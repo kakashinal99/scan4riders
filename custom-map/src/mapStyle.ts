@@ -70,9 +70,9 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
           'line-color': [
             'match', ['get', 'class'],
             'motorway', '#22D3EE', 'trunk', '#12B8D4',
-            'primary', '#FFB020', 'secondary', '#B6F542',
-            'tertiary', '#6F9EAD', 'minor', '#5D7C89',
-            'residential', '#49616D', 'service', '#354A55', '#78909C'
+            'primary', '#8AC6D3', 'secondary', '#6F9EAD',
+            'tertiary', '#587783', 'minor', '#49616D',
+            'residential', '#3B535E', 'service', '#2D414A', '#78909C'
           ],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
