@@ -18,6 +18,8 @@ object GrabOrderParser {
         val lines = rawText.lines().map { it.trim() }.filter { it.isNotBlank() }
         if (lines.isEmpty()) return null
         val joined = lines.joinToString(" ")
+        val offerContext = Regex("(?i)pickup|drop.?off|accept|delivery|trip|restaurant|merchant").containsMatchIn(joined)
+        if (!offerContext) return null
         val fare = farePattern.findAll(joined).mapNotNull { (it.groupValues[1].ifBlank { it.groupValues[2] }).toDoubleOrNull() }
             .filter { it in 1.0..500.0 }.lastOrNull() ?: return null
         val distances = distancePattern.findAll(joined).mapNotNull { it.groupValues[1].toDoubleOrNull() }.toList()
