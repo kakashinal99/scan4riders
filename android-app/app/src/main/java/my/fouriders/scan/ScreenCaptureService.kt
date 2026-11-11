@@ -46,11 +46,19 @@ class ScreenCaptureService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val resultCode = intent?.getIntExtra(EXTRA_RESULT_CODE, 0) ?: 0
-        val data = if (Build.VERSION.SDK_INT >= 33) intent?.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
-                   else @Suppress("DEPRECATION") intent?.getParcelableExtra(EXTRA_RESULT_DATA)
+        val data = readProjectionIntent(intent)
         if (resultCode != 0 && data != null) beginCapture(resultCode, data)
         else stopWithState(false, "Screen capture permission missing")
         return START_NOT_STICKY
+    }
+
+    @Suppress("DEPRECATION")
+    private fun readProjectionIntent(intent: Intent?): Intent? {
+        return if (Build.VERSION.SDK_INT >= 33) {
+            intent?.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
+        } else {
+            intent?.getParcelableExtra(EXTRA_RESULT_DATA)
+        }
     }
 
     private fun beginCapture(resultCode: Int, data: Intent) {
