@@ -11,6 +11,7 @@ const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF
 declare global {
   interface Window {
     set4RidersSession?: (accessToken: string, userId: string) => void;
+    __4rSessionPending?: { accessToken: string; userId: string };
   }
 }
 
@@ -151,9 +152,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    window.set4RidersSession = (accessToken, userId) => {
+    const applySession = (accessToken: string, userId: string) => {
       void loadCloudOrders(accessToken, userId);
     };
+    window.set4RidersSession = applySession;
+    if (window.__4rSessionPending) {
+      applySession(window.__4rSessionPending.accessToken, window.__4rSessionPending.userId);
+      delete window.__4rSessionPending;
+    }
     return () => { delete window.set4RidersSession; };
   }, [loadCloudOrders]);
 
