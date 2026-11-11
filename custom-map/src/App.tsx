@@ -356,7 +356,7 @@ export default function App() {
         type: 'line',
         source: '4r-live-lane-markings',
         filter: ['==', ['get', 'isRoad'], true],
-        minzoom: 14,
+        minzoom: 13,
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
@@ -375,7 +375,7 @@ export default function App() {
         type: 'line',
         source: '4r-live-lane-markings',
         filter: ['==', ['get', 'isCenter'], false],
-        minzoom: 14,
+        minzoom: 13,
         paint: {
           'line-color': 'rgba(255,255,255,0.86)',
           'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.7, 18, 1.25],
@@ -389,7 +389,7 @@ export default function App() {
         type: 'line',
         source: '4r-live-lane-markings',
         filter: ['==', ['get', 'isCenter'], true],
-        minzoom: 14,
+        minzoom: 13,
         paint: {
           'line-color': '#f0d38a',
           'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 18, 1.5],
@@ -399,7 +399,7 @@ export default function App() {
       });
 
       const refreshLiveLaneMarkings = async () => {
-        if (activeMap.getZoom() < 14) {
+        if (activeMap.getZoom() < 13) {
           const source = activeMap.getSource('4r-live-lane-markings') as maplibregl.GeoJSONSource | undefined;
           source?.setData({ type: 'FeatureCollection', features: [] });
           return;
@@ -412,23 +412,40 @@ export default function App() {
         const west = bounds.getWest().toFixed(5);
         const north = bounds.getNorth().toFixed(5);
         const east = bounds.getEast().toFixed(5);
-        const queryText = `[out:json][timeout:20];way["highway"]["lanes"](${south},${west},${north},${east});out geom;`;
+        const queryText = `[out:json][timeout:15];(way["highway"]["lanes"](${south},${west},${north},${east});way["highway"]["lanes:forward"](${south},${west},${north},${east});way["highway"]["lanes:backward"](${south},${west},${north},${east}););out geom;`;
         try {
-          const response = await fetch('https://overpass-api.de/api/interpreter', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-            body: `data=${encodeURIComponent(queryText)}`,
-            signal: controller.signal
-          });
-          if (!response.ok) throw new Error(`Lane data request returned ${response.status}`);
-          const payload = await response.json() as {
+          const endpoints = [
+            'https://overpass-api.de/api/interpreter',
+            'https://overpass.kumi.systems/api/interpreter',
+            'https://overpass.private.coffee/api/interpreter'
+          ];
+          let payload: {
             elements?: Array<{
               type: string;
               id: number;
               tags?: Record<string, string>;
               geometry?: Array<{ lon: number; lat: number }>;
             }>;
-          };
+          } | null = null;
+          let lastError: Error | null = null;
+          for (const endpoint of endpoints) {
+            if (controller.signal.aborted) return;
+            try {
+              const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                body: `data=${encodeURIComponent(queryText)}`,
+                signal: controller.signal
+              });
+              if (!response.ok) throw new Error(`Lane data request returned ${response.status}`);
+              payload = await response.json();
+              break;
+            } catch (requestError) {
+              if (controller.signal.aborted) return;
+              lastError = requestError instanceof Error ? requestError : new Error('Lane data request failed');
+            }
+          }
+          if (!payload) throw lastError ?? new Error('All lane data servers are unavailable');
           if (controller.signal.aborted || !activeMap.getSource('4r-live-lane-markings')) return;
           const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
           for (const way of payload.elements ?? []) {
