@@ -231,9 +231,9 @@ export default function App() {
           activeMap.setPaintProperty(layer.id, 'line-color', [
             'match', ['get', 'class'],
             'motorway', '#22D3EE', 'trunk', '#12B8D4',
-            'primary', '#FFB020', 'secondary', '#B6F542',
-            'tertiary', '#6F9EAD', 'minor', '#5D7C89',
-            'residential', '#49616D', 'service', '#354A55',
+            'primary', '#8AC6D3', 'secondary', '#6F9EAD',
+            'tertiary', '#587783', 'minor', '#49616D',
+            'residential', '#3B535E', 'service', '#2D414A',
             '#78909C'
           ]);
         } catch { /* Some style layers use a different schema. */ }
@@ -365,9 +365,9 @@ export default function App() {
           'line-color': [
             'match', ['get', 'highway'],
             'motorway', '#22D3EE', 'trunk', '#12B8D4',
-            'primary', '#FFB020', 'secondary', '#B6F542',
-            'tertiary', '#6F9EAD', 'residential', '#49616D',
-            'service', '#354A55', '#78909C'
+            'primary', '#8AC6D3', 'secondary', '#6F9EAD',
+            'tertiary', '#587783', 'residential', '#3B535E',
+            'service', '#2D414A', '#78909C'
           ],
           'line-width': ['*', ['get', 'lanes'], ['interpolate', ['linear'], ['zoom'], 14, 2.2, 18, 5.5]],
           'line-offset': ['*', ['get', 'roadOffsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
@@ -399,8 +399,8 @@ export default function App() {
         layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           // Amber centerline is the restrained contrast accent in Neon Night.
-          'line-color': '#FFB020',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.85, 18, 1.35],
+          'line-color': '#BCEEF5',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.75, 18, 1.2],
           'line-offset': ['*', ['get', 'offsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
           'line-opacity': 0.92
         }
@@ -913,15 +913,15 @@ export default function App() {
 
     const palettes = {
       clean: {
-        motorway: '#F4B942', trunk: '#D99A32', primary: '#B9A17A', secondary: '#777F89',
+        motorway: '#22D3EE', trunk: '#12B8D4', primary: '#8AC6D3', secondary: '#6F9EAD',
         widths: ['motorway', 6.8, 'trunk', 5.9, 'primary', 5.1, 'secondary', 4.2]
       },
       premium: {
-        motorway: '#22D3EE', trunk: '#12B8D4', primary: '#FFB020', secondary: '#B6F542',
+        motorway: '#45E0F2', trunk: '#20B8D0', primary: '#91C9D4', secondary: '#789EAA',
         widths: ['motorway', 7.0, 'trunk', 6.1, 'primary', 5.3, 'secondary', 4.4]
       },
       contrast: {
-        motorway: '#FFB020', trunk: '#FF6B35', primary: '#E8F1F2', secondary: '#8AC6D3',
+        motorway: '#22D3EE', trunk: '#FF9F1C', primary: '#D6E8EA', secondary: '#879EAA',
         widths: ['motorway', 7.4, 'trunk', 6.5, 'primary', 5.7, 'secondary', 4.7]
       }
     } as const;
