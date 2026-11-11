@@ -4,6 +4,8 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.pm.ServiceInfo
+import androidx.core.app.ServiceCompat
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
@@ -16,7 +18,8 @@ class RiderLocationService : Service() {
     override fun onCreate() {
         super.onCreate()
         createChannel()
-        startForeground(NOTIFICATION_ID, notification())
+        if (Build.VERSION.SDK_INT >= 29) ServiceCompat.startForeground(this, NOTIFICATION_ID, notification(), ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        else startForeground(NOTIFICATION_ID, notification())
         client = LocationServices.getFusedLocationProviderClient(this)
         callback = object : LocationCallback() {
             override fun onLocationResult(result: LocationResult) {
