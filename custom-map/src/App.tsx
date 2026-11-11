@@ -937,8 +937,12 @@ export default function App() {
     map.setPaintProperty('roads', 'line-color', colorExpression);
     map.setPaintProperty('roads', 'line-width', widthExpression);
     map.setPaintProperty('roads', 'line-opacity', 1);
+    map.setLayoutProperty('roads', 'line-cap', 'round');
+    map.setLayoutProperty('roads', 'line-join', 'round');
     if (map.getLayer('road-casing')) {
-      map.setPaintProperty('road-casing', 'line-color', style === 'contrast' ? '#05070b' : '#090a0e');
+      map.setPaintProperty('road-casing', 'line-color', '#071117');
+      map.setLayoutProperty('road-casing', 'line-cap', 'round');
+      map.setLayoutProperty('road-casing', 'line-join', 'round');
     }
   };
 
