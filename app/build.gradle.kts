@@ -16,6 +16,7 @@ android {
         versionName = "1.2"
         buildConfigField("String", "SUPABASE_URL", "\"https://nuebncvryoxehhnynnbb.supabase.co\"")
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF\"")
+        buildConfigField("String", "CUSTOM_MAP_URL", "\"https://fourriders-custom-map.onrender.com\"")
     }
     buildFeatures {
         buildConfig = true
