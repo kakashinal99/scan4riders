@@ -1,0 +1,104 @@
+name: Build Klang Valley map data
+
+# PRs verify the published archive's range support. Browser CORS is provided by
+# the Cloudflare Worker and is verified by the proxy deployment workflow.
+on:
+  pull_request:
+    paths:
+      - "custom-map/data-pipeline/**"
+      - ".github/workflows/build-klang-valley-map.yml"
+  push:
+    branches:
+      - main
+      - feature/custom-map-foundation
+    paths:
+      - "custom-map/data-pipeline/**"
+      - ".github/workflows/build-klang-valley-map.yml"
+  workflow_dispatch:
+  schedule:
+    # Refresh OSM-derived regional basemap weekly from the latest Geofabrik extract.
+    - cron: "20 2 * * 1"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: klang-valley-map-${{ github.event_name }}
+  cancel-in-progress: false
+
+jobs:
+  verify-current-release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify published PMTiles byte-range support
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles"
+          HEADERS="$(mktemp)"
+          BODY="$(mktemp)"
+          trap 'rm -f "$HEADERS" "$BODY"' EXIT
+          STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
+            -H 'Range: bytes=0-15' "$URL")"
+          echo "Final HTTP status: $STATUS"
+          test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
+          test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
+          grep -Eqi '^content-range: bytes 0-15/' "$HEADERS" || { echo "Missing valid Content-Range"; exit 1; }
+
+  build-and-publish:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Checkout standalone map project
+        uses: actions/checkout@v4
+      - name: Install Osmium Tool
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y osmium-tool
+      - name: Build and verify PMTiles
+        working-directory: custom-map/data-pipeline
+        run: |
+          chmod +x build.sh
+          ./build.sh
+      - name: Upload versioned map archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: klang-valley-map-${{ github.run_id }}
+          path: |
+            custom-map/data-pipeline/output/klang-valley-basemap.pmtiles
+            custom-map/data-pipeline/output/manifest.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish public PMTiles release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: klang-valley-basemap-latest
+          name: 4Riders Klang Valley Basemap (latest)
+          body: |
+            Automatically generated Klang Valley vector basemap from OpenStreetMap data.
+            Source: Geofabrik Malaysia-Singapore-Brunei extract. License: ODbL-1.0.
+            The PMTiles archive is served as a public release asset for HTTP byte-range access.
+          files: |
+            custom-map/data-pipeline/output/klang-valley-basemap.pmtiles
+            custom-map/data-pipeline/output/manifest.json
+          overwrite_files: true
+          make_latest: false
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Verify newly published PMTiles byte-range support
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles"
+          HEADERS="$(mktemp)"
+          BODY="$(mktemp)"
+          trap 'rm -f "$HEADERS" "$BODY"' EXIT
+          STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
+            -H 'Range: bytes=0-15' "$URL")"
+          echo "Final HTTP status: $STATUS"
+          test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
+          test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
+          grep -Eqi '^content-range: bytes 0-15/' "$HEADERS" || { echo "Missing valid Content-Range"; exit 1; }

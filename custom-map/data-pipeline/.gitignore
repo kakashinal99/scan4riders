@@ -1,0 +1,5 @@
+work/
+output/
+*.osm.pbf
+*.pmtiles
+*.mbtiles

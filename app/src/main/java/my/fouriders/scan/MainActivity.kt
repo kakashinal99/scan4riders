@@ -59,7 +59,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("trace", null)
-        if (crash != null) showCrash(crash) else buildUi()
+        if (crash != null) showCrash(crash) else {
+            buildUi()
+            CloudSync.syncAll(this, Store.all(this))
+        }
     }
 
 
@@ -89,12 +92,20 @@ class MainActivity : ComponentActivity() {
     private fun render() {
         val y = content.scrollY
         navRow.removeAllViews()
-        listOf("Today", "Orders", "History", "Settings").forEachIndexed { i, name ->
+        listOf("Today", "Orders", "History", "Settings", "Map").forEachIndexed { i, name ->
             val on = i == tab
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                setOnClickListener { tab = i; content.scrollTo(0, 0); render() }
+                setOnClickListener {
+                    if (i == 4) {
+                        startActivity(Intent(this@MainActivity, MapActivity::class.java))
+                    } else {
+                        tab = i
+                        content.scrollTo(0, 0)
+                        render()
+                    }
+                }
             }
             cell.addView(View(this).apply { setBackgroundColor(if (on) BLUE else Color.TRANSPARENT) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(3)))
             cell.addView(tv(name, 13.5f, if (on) BLUE else MUT, true).apply { gravity = Gravity.CENTER }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f).apply { }, )

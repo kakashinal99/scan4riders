@@ -1,0 +1,19 @@
+{
+  "name": "4Riders Custom Map",
+  "short_name": "4Riders Map",
+  "description": "Standalone Klang Valley motorcycle map and route planner.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#101014",
+  "theme_color": "#101014",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
