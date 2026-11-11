@@ -17,8 +17,8 @@ declare global {
     save4RidersOrder?: (order: {
       external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
       pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
-      pickup_lng?: number; dropoff_label?: string; dropoff_lat?: number;
-      dropoff_lng?: number; raw_scan?: Record<string, unknown>;
+      pickup_lng?: number; pickup_verified?: boolean; dropoff_label?: string; dropoff_lat?: number;
+      dropoff_lng?: number; dropoff_verified?: boolean; raw_scan?: Record<string, unknown>;
     }) => void;
   }
 }
@@ -317,9 +317,11 @@ export default function App() {
         pickup_label: order.pickup_label ?? null,
         pickup_lat: Number.isFinite(order.pickup_lat) ? order.pickup_lat : null,
         pickup_lng: Number.isFinite(order.pickup_lng) ? order.pickup_lng : null,
+        pickup_verified: order.pickup_verified === true && Number.isFinite(order.pickup_lat) && Number.isFinite(order.pickup_lng),
         dropoff_label: order.dropoff_label ?? null,
         dropoff_lat: Number.isFinite(order.dropoff_lat) ? order.dropoff_lat : null,
         dropoff_lng: Number.isFinite(order.dropoff_lng) ? order.dropoff_lng : null,
+        dropoff_verified: order.dropoff_verified === true && Number.isFinite(order.dropoff_lat) && Number.isFinite(order.dropoff_lng),
         raw_scan: order.raw_scan ?? {}
       };
       void fetch(SUPABASE_URL + '/rest/v1/orders', {
