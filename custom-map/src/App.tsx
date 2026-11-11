@@ -140,7 +140,8 @@ export default function App() {
     const saved = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, user };
     window.localStorage.setItem('4riders.auth.session.v1', JSON.stringify(saved));
     setCloudUser({ id: user.id, email: user.email ?? '' });
-    window.set4RidersSession?.(accessToken, user.id);
+    if (window.set4RidersSession) window.set4RidersSession(accessToken, user.id);
+    else window.__4rSessionPending = { accessToken, userId: user.id };
   };
 
   useEffect(() => {
@@ -160,7 +161,8 @@ export default function App() {
           if (!cancelled) persistAuthSession(next);
         } else if (saved.access_token && saved.user?.id && !cancelled) {
           setCloudUser({ id: saved.user.id, email: saved.user.email ?? '' });
-          window.set4RidersSession?.(saved.access_token, saved.user.id);
+          if (window.set4RidersSession) window.set4RidersSession(saved.access_token, saved.user.id);
+          else window.__4rSessionPending = { accessToken: saved.access_token, userId: saved.user.id };
         }
       } catch (error) {
         window.localStorage.removeItem('4riders.auth.session.v1');
@@ -227,6 +229,7 @@ export default function App() {
       }
     } catch { /* Local sign-out still clears the device session. */ }
     window.localStorage.removeItem('4riders.auth.session.v1');
+    cloudSessionRef.current = null;
     setCloudUser(null);
     setNativeScannerOn(false);
     setNativeScannerMessage('Sign in to sync rider data');
