@@ -52,10 +52,34 @@ type SearchFeature = { geometry: { coordinates: [number, number] }; properties: 
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
 type BuildingSelection = { name: string; address: string; addressLabel: string; category: string; block: string; reference: string; details: Array<[string, string]> };
 
+
+function decodeCloudRoute(encoded: string): [number, number][] {
+  let index = 0, lat = 0, lng = 0;
+  const points: [number, number][] = [];
+  const read = () => {
+    let result = 0, shift = 0, byte = 0;
+    do {
+      if (index >= encoded.length) throw new Error('Invalid route geometry');
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    return (result & 1) ? ~(result >> 1) : (result >> 1);
+  };
+  while (index < encoded.length) {
+    lat += read();
+    lng += read();
+    points.push([lng / 1e6, lat / 1e6]);
+  }
+  return points;
+}
+
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pendingCloudOrdersRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const pendingCloudRouteRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const lastCloudRouteKeyRef = useRef<string>('');
   const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -146,6 +170,60 @@ export default function App() {
       pendingCloudOrdersRef.current = collection;
       const source = mapRef.current?.getSource('4r-order-locations') as maplibregl.GeoJSONSource | undefined;
       source?.setData(collection);
+
+      const routeOrder = rows.find((order) =>
+        typeof order.pickup_lat === 'number' && typeof order.pickup_lng === 'number' &&
+        typeof order.dropoff_lat === 'number' && typeof order.dropoff_lng === 'number' &&
+        order.pickup_verified === true && order.dropoff_verified === true &&
+        order.status !== 'rejected' && order.status !== 'cancelled'
+      );
+      const routeKey = routeOrder ? String(routeOrder.id) : '';
+      if (routeKey && routeKey !== lastCloudRouteKeyRef.current) {
+        lastCloudRouteKeyRef.current = routeKey;
+        try {
+          const routeResponse = await fetch('https://valhalla1.openstreetmap.de/route', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              locations: [
+                { lat: routeOrder.pickup_lat, lon: routeOrder.pickup_lng },
+                { lat: routeOrder.dropoff_lat, lon: routeOrder.dropoff_lng }
+              ],
+              costing: 'motorcycle',
+              costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
+              units: 'kilometers',
+              language: 'en-US'
+            })
+          });
+          if (!routeResponse.ok) throw new Error(`Motorcycle route returned HTTP ${routeResponse.status}`);
+          const routeData = await routeResponse.json() as { trip?: { legs?: Array<{ shape?: string }> } };
+          const shape = routeData.trip?.legs?.[0]?.shape;
+          if (!shape) throw new Error('No motorcycle route returned for this order');
+          const coordinates = decodeCloudRoute(shape);
+          const routeCollection: GeoJSON.FeatureCollection = {
+            type: 'FeatureCollection',
+            features: [{
+              type: 'Feature',
+              properties: { orderId: routeOrder.id },
+              geometry: { type: 'LineString', coordinates }
+            }]
+          };
+          pendingCloudRouteRef.current = routeCollection;
+          const routeSource = mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined;
+          routeSource?.setData(routeCollection);
+          if (coordinates.length > 1 && mapRef.current) {
+            const bounds = coordinates.reduce(
+              (acc, point) => acc.extend(point),
+              new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
+            );
+            mapRef.current.fitBounds(bounds, { padding: { top: 90, right: 55, bottom: 190, left: 55 }, maxZoom: 16, duration: 850 });
+          }
+        } catch (routeError) {
+          console.warn('[4Riders cloud order route]', routeError);
+          lastCloudRouteKeyRef.current = '';
+        }
+      }
+
       setMessage(`Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
     } catch (error) {
       console.warn('[4Riders cloud orders]', error);
@@ -428,6 +506,24 @@ export default function App() {
       activeMap.addSource('4r-order-locations', {
         type: 'geojson',
         data: pendingCloudOrdersRef.current
+      });
+      activeMap.addSource('4r-cloud-order-route', {
+        type: 'geojson',
+        data: pendingCloudRouteRef.current
+      });
+      activeMap.addLayer({
+        id: '4r-cloud-order-route-casing',
+        type: 'line',
+        source: '4r-cloud-order-route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#101719', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 11, 19, 14], 'line-opacity': 0.96 }
+      });
+      activeMap.addLayer({
+        id: '4r-cloud-order-route-line',
+        type: 'line',
+        source: '4r-cloud-order-route',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: { 'line-color': '#36D9FF', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.8, 16, 6, 19, 8], 'line-opacity': 0.98 }
       });
       activeMap.addLayer({
         id: '4r-order-points',
