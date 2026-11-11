@@ -28,6 +28,8 @@ npm run dev
 - Uniform muted-purple 2D building footprints from the vector building layer
 - Building-name labels rendered from vector-tile building attributes (no separate live Overpass request)
 - Tap-to-inspect building footprints with source-backed name, category, address tags, block/reference, operator, brand and floor-count fields where present; missing fields are explicitly shown as unavailable
+- On tap, exact-footprint OpenStreetMap way-tag enrichment uses a point-in-polygon match before applying address/block tags; nearby geocoding is a separately labelled fallback and is never represented as a verified building address
+- Building labels use one runtime-managed symbol layer to avoid duplicate name rendering
 - Responsive collapsed/expanded bottom information panel
 - No synthetic hotspots or invented delivery-zone polygons
 
