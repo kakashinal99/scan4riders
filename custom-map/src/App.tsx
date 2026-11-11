@@ -124,6 +124,114 @@ export default function App() {
   const [nativeScannerOn, setNativeScannerOn] = useState(false);
   const [nativeScannerMessage, setNativeScannerMessage] = useState('');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [cloudUser, setCloudUser] = useState<{ id: string; email: string } | null>(null);
+
+  const persistAuthSession = (session: Record<string, unknown>) => {
+    const user = session.user as { id?: string; email?: string } | undefined;
+    const accessToken = String(session.access_token ?? '');
+    const refreshToken = String(session.refresh_token ?? '');
+    if (!user?.id || !accessToken) throw new Error('Supabase returned an incomplete session');
+    const expiresAt = Date.now() + Number(session.expires_in ?? 3600) * 1000;
+    const saved = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, user };
+    window.localStorage.setItem('4riders.auth.session.v1', JSON.stringify(saved));
+    setCloudUser({ id: user.id, email: user.email ?? '' });
+    window.set4RidersSession?.(accessToken, user.id);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const restore = async () => {
+      try {
+        const raw = window.localStorage.getItem('4riders.auth.session.v1');
+        if (!raw) return;
+        const saved = JSON.parse(raw) as { access_token?: string; refresh_token?: string; expires_at?: number; user?: { id?: string; email?: string } };
+        if (saved.refresh_token && (!saved.expires_at || saved.expires_at < Date.now() + 120000)) {
+          const response = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+            method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: saved.refresh_token })
+          });
+          if (!response.ok) throw new Error('Session expired. Please sign in again.');
+          const next = await response.json();
+          if (!cancelled) persistAuthSession(next);
+        } else if (saved.access_token && saved.user?.id && !cancelled) {
+          setCloudUser({ id: saved.user.id, email: saved.user.email ?? '' });
+          window.set4RidersSession?.(saved.access_token, saved.user.id);
+        }
+      } catch (error) {
+        window.localStorage.removeItem('4riders.auth.session.v1');
+        if (!cancelled) setAuthError(error instanceof Error ? error.message : 'Unable to restore login');
+      }
+    };
+    void restore();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!cloudUser) return;
+    const timer = window.setInterval(async () => {
+      try {
+        const raw = window.localStorage.getItem('4riders.auth.session.v1');
+        if (!raw) return;
+        const saved = JSON.parse(raw);
+        if (!saved.refresh_token || saved.expires_at > Date.now() + 180000) return;
+        const response = await fetch(SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token', {
+          method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: saved.refresh_token })
+        });
+        if (!response.ok) throw new Error('Session refresh failed');
+        persistAuthSession(await response.json());
+      } catch (error) {
+        setAuthError(error instanceof Error ? error.message : 'Session refresh failed');
+      }
+    }, 60000);
+    return () => window.clearInterval(timer);
+  }, [cloudUser?.id]);
+
+  const submitAuth = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const endpoint = authMode === 'signin' ? 'token?grant_type=password' : 'signup';
+      const response = await fetch(SUPABASE_URL + '/auth/v1/' + endpoint, {
+        method: 'POST',
+        headers: { apikey: SUPABASE_PUBLISHABLE_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPassword })
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.msg || result.message || result.error_description || 'Authentication failed');
+      if (!result.access_token) {
+        setAuthError('Account created. Verify your email, then sign in.');
+        setAuthMode('signin');
+      } else persistAuthSession(result);
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Unable to sign in');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const signOutCloud = async () => {
+    const raw = window.localStorage.getItem('4riders.auth.session.v1');
+    try {
+      if (raw) {
+        const saved = JSON.parse(raw);
+        await fetch(SUPABASE_URL + '/auth/v1/logout', {
+          method: 'POST', headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + saved.access_token }
+        });
+      }
+    } catch { /* Local sign-out still clears the device session. */ }
+    window.localStorage.removeItem('4riders.auth.session.v1');
+    setCloudUser(null);
+    setNativeScannerOn(false);
+    setNativeScannerMessage('Sign in to sync rider data');
+  };
+
   useEffect(() => {
     window.set4RidersNativeScannerState = (state, detail = '') => {
       setNativeScannerOn(state === 'on');
@@ -1410,6 +1518,23 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
+      {cloudUser && <div style={{position:'absolute',top:14,right:14,zIndex:25,display:'flex',alignItems:'center',gap:8,padding:'8px 11px',borderRadius:18,background:'rgba(13,19,23,.94)',border:'1px solid rgba(255,255,255,.14)',color:'#eef3f5',fontSize:10}}>
+        <span style={{maxWidth:130,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cloudUser.email || 'Rider account'}</span>
+        <button type="button" onClick={signOutCloud} style={{border:0,background:'transparent',color:'#f4b942',fontWeight:800}}>SIGN OUT</button>
+      </div>}
+      {!cloudUser && <div style={{position:'absolute',inset:0,zIndex:50,display:'grid',placeItems:'center',padding:22,background:'rgba(5,9,12,.82)',backdropFilter:'blur(12px)'}}>
+        <form onSubmit={submitAuth} style={{width:'min(100%,360px)',padding:24,borderRadius:22,background:'#141c22',border:'1px solid rgba(255,255,255,.12)',boxShadow:'0 24px 80px rgba(0,0,0,.55)',display:'flex',flexDirection:'column',gap:13,color:'#f4f7f8'}}>
+          <div style={{fontSize:11,letterSpacing:'.2em',fontWeight:900,color:'#f4b942'}}>4RIDERS · RIDER CLOUD</div>
+          <strong style={{fontSize:23}}>{authMode === 'signin' ? 'Sign in' : 'Create rider account'}</strong>
+          <span style={{fontSize:12,color:'#aab7bf'}}>Your orders, GPS history and settings sync to your own account.</span>
+          <input type="email" required value={authEmail} onChange={e=>setAuthEmail(e.target.value)} placeholder="Email address" autoComplete="email" style={{padding:13,borderRadius:10,border:'1px solid #34434c',background:'#0d1419',color:'#fff'}}/>
+          <input type="password" required minLength={6} value={authPassword} onChange={e=>setAuthPassword(e.target.value)} placeholder="Password" autoComplete={authMode === 'signin' ? 'current-password' : 'new-password'} style={{padding:13,borderRadius:10,border:'1px solid #34434c',background:'#0d1419',color:'#fff'}}/>
+          {authError && <span role="alert" style={{fontSize:11,color:'#ff8c80'}}>{authError}</span>}
+          <button type="submit" disabled={authBusy} style={{padding:13,border:0,borderRadius:11,background:'#f4b942',color:'#111820',fontWeight:900}}>{authBusy ? 'PLEASE WAIT…' : authMode === 'signin' ? 'SIGN IN' : 'CREATE ACCOUNT'}</button>
+          <button type="button" onClick={()=>{setAuthMode(authMode === 'signin' ? 'signup' : 'signin');setAuthError('');}} style={{padding:8,border:0,background:'transparent',color:'#d5e0e5',fontSize:12}}>{authMode === 'signin' ? 'New rider? Create account' : 'Already registered? Sign in'}</button>
+        </form>
+      </div>}
+
       <div className="native-scanner-control" style={{position:"absolute",top:"max(14px, env(safe-area-inset-top))",left:14,zIndex:20,display:"flex",flexDirection:"column",gap:5,pointerEvents:"auto"}}>
         <button type="button" className={nativeScannerOn ? "native-scanner-toggle active" : "native-scanner-toggle"} onClick={toggleNativeScanner} style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:22,border:"1px solid rgba(255,255,255,.18)",background:nativeScannerOn?"#173d32":"#171d24",color:"#f5f7f8",fontSize:11,fontWeight:800,letterSpacing:".08em",boxShadow:"0 6px 24px rgba(0,0,0,.35)"}}>
           <span className={nativeScannerOn ? "native-scanner-indicator active" : "native-scanner-indicator"} style={{width:8,height:8,borderRadius:8,background:nativeScannerOn?"#46df9a":"#f0a33a",boxShadow:nativeScannerOn?"0 0 10px #46df9a":"none"}} />
