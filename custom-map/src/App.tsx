@@ -115,7 +115,6 @@ export default function App() {
   const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
   const nativeGpsRef = useRef<{ latitude: number; longitude: number; accuracy: number; heading: number | null } | null>(null);
   const nativeGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const lastNativeGpsCloudWriteAtRef = useRef(0);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
