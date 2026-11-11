@@ -20,33 +20,33 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
       }
     },
     layers: [
-      { id: 'background', type: 'background', paint: { 'background-color': '#101014' } },
+      { id: 'background', type: 'background', paint: { 'background-color': '#080D12' } },
       {
         id: 'landcover-wood', type: 'fill', source: 'openmaptiles', 'source-layer': 'landcover',
         filter: ['==', ['get', 'class'], 'wood'],
-        paint: { 'fill-color': '#20242a', 'fill-opacity': 0.72 }
+        paint: { 'fill-color': '#101B21', 'fill-opacity': 0.72 }
       },
       {
         id: 'landuse', type: 'fill', source: 'openmaptiles', 'source-layer': 'landuse',
-        paint: { 'fill-color': '#191b22', 'fill-opacity': 0.55 }
+        paint: { 'fill-color': '#111A20', 'fill-opacity': 0.55 }
       },
       {
         id: 'water', type: 'fill', source: 'openmaptiles', 'source-layer': 'water',
-        paint: { 'fill-color': '#202a35', 'fill-opacity': 0.92 }
+        paint: { 'fill-color': '#102B37', 'fill-opacity': 0.92 }
       },
       {
         id: 'waterway', type: 'line', source: 'openmaptiles', 'source-layer': 'waterway',
-        paint: { 'line-color': '#344858', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 16, 2] }
+        paint: { 'line-color': '#1C6070', 'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.5, 16, 2] }
       },
       {
         id: 'building-fill', type: 'fill', source: 'openmaptiles', 'source-layer': 'building',
         minzoom: 13,
-        paint: { 'fill-color': '#766b80', 'fill-opacity': 0.82 }
+        paint: { 'fill-color': '#263943', 'fill-opacity': 0.82 }
       },
       {
         id: 'building-outline', type: 'line', source: 'openmaptiles', 'source-layer': 'building',
         minzoom: 15,
-        paint: { 'line-color': '#b7a7c6', 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 18, 1.1], 'line-opacity': 0.9 }
+        paint: { 'line-color': '#5D8794', 'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 18, 1.1], 'line-opacity': 0.9 }
       },
       {
         id: 'road-casing', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
@@ -66,10 +66,10 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
         paint: {
           'line-color': [
             'match', ['get', 'class'],
-            'motorway', '#d8a4c8', 'trunk', '#c59acb',
-            'primary', '#e0bd91', 'secondary', '#d2c49c',
-            'tertiary', '#b8b0c5', 'minor', '#a49caf',
-            'residential', '#8f899d', 'service', '#777181', '#9690a2'
+            'motorway', '#22D3EE', 'trunk', '#12B8D4',
+            'primary', '#FFB020', 'secondary', '#B6F542',
+            'tertiary', '#6F9EAD', 'minor', '#5D7C89',
+            'residential', '#49616D', 'service', '#354A55', '#78909C'
           ],
           'line-width': [
             'interpolate', ['linear'], ['zoom'],
@@ -127,7 +127,7 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
           'text-size': ['interpolate', ['linear'], ['zoom'], 13, 9, 17, 12],
           'text-max-width': 8
         },
-        paint: { 'text-color': '#d9d2df', 'text-halo-color': '#17151c', 'text-halo-width': 1.4 }
+        paint: { 'text-color': '#C6E5EA', 'text-halo-color': '#080D12', 'text-halo-width': 1.4 }
       },
       {
         id: 'place-names', type: 'symbol', source: 'openmaptiles', 'source-layer': 'place',
@@ -139,7 +139,7 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
           'text-size': ['interpolate', ['linear'], ['zoom'], 5, 10, 12, 14, 16, 17],
           'text-max-width': 9
         },
-        paint: { 'text-color': '#eee7f3', 'text-halo-color': '#101014', 'text-halo-width': 1.7 }
+        paint: { 'text-color': '#E8FAFC', 'text-halo-color': '#080D12', 'text-halo-width': 1.7 }
       }
     ]
   };
