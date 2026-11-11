@@ -352,6 +352,25 @@ export default function App() {
         });
       }
       activeMap.addLayer({
+        id: '4r-live-lane-road-widths',
+        type: 'line',
+        source: '4r-live-lane-markings',
+        filter: ['==', ['get', 'isRoad'], true],
+        minzoom: 14,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
+        paint: {
+          'line-color': [
+            'match', ['get', 'highway'],
+            'motorway', '#d8a4c8', 'trunk', '#c59acb',
+            'primary', '#e0bd91', 'secondary', '#d2c49c',
+            'tertiary', '#b8b0c5', 'residential', '#8f899d',
+            'service', '#777181', '#9690a2'
+          ],
+          'line-width': ['*', ['get', 'lanes'], ['interpolate', ['linear'], ['zoom'], 14, 2.2, 18, 5.5]],
+          'line-opacity': 0.98
+        }
+      });
+      activeMap.addLayer({
         id: '4r-live-lane-dividers',
         type: 'line',
         source: '4r-live-lane-markings',
@@ -423,6 +442,12 @@ export default function App() {
             const geometry = way.geometry ?? [];
             if (!Number.isInteger(laneCount) || laneCount < 2 || laneCount > 8 || geometry.length < 2) continue;
             const coordinates = geometry.map((point) => [point.lon, point.lat] as [number, number]);
+            features.push({
+              type: 'Feature',
+              id: `${way.id}-lane-road`,
+              properties: { isRoad: true, lanes: laneCount, highway: tags.highway ?? 'road' },
+              geometry: { type: 'LineString', coordinates }
+            });
             // A road with N lanes has N-1 internal separators. For even lane
             // counts the middle separator is highlighted as the opposing-flow divider.
             for (let divider = 0; divider < laneCount - 1; divider++) {
@@ -431,7 +456,7 @@ export default function App() {
               features.push({
                 type: 'Feature',
                 id: `${way.id}-lane-${divider}`,
-                properties: { offsetIndex, isCenter, lanes: laneCount, oneway: tags.oneway ?? 'unknown' },
+                properties: { isRoad: false, offsetIndex, isCenter, lanes: laneCount, oneway: tags.oneway ?? 'unknown' },
                 geometry: { type: 'LineString', coordinates }
               });
             }
