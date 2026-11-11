@@ -60,11 +60,12 @@ class MainActivity : AppCompatActivity() {
         requestLocationPermissionIfNeeded()
     }
 
+    @Suppress("DEPRECATION")
     private fun registerLocationReceiver() {
         if (receiverRegistered) return
         val filter = IntentFilter(RiderLocationService.ACTION_LOCATION)
         if (Build.VERSION.SDK_INT >= 33) registerReceiver(locationReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
-        else @Suppress("DEPRECATION") registerReceiver(locationReceiver, filter)
+        else registerReceiver(locationReceiver, filter)
         receiverRegistered = true
     }
 
