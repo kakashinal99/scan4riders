@@ -23,6 +23,7 @@ object CloudSync {
     private const val ACCESS = "access_token"
     private const val REFRESH = "refresh_token"
     private const val EXPIRES = "expires_at"
+    private const val USER_ID = "user_id"
     private val worker = Executors.newSingleThreadExecutor()
 
     fun syncAll(context: Context, rows: List<Rec>) {
@@ -96,10 +97,15 @@ object CloudSync {
             .putString(REFRESH, response.optString("refresh_token").takeIf { it.isNotBlank() })
             .putLong(EXPIRES, now + expiresIn * 1000L)
             .apply()
+        response.optJSONObject("user")?.optString("id")?.takeIf { it.isNotBlank() }?.let { userId ->
+            prefs.edit().putString(USER_ID, userId).apply()
+        }
     }
 
     private fun upsertOrder(context: Context, row: Rec) {
         val token = accessToken(context)
+        val userId = context.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+            .getString(USER_ID, null) ?: throw IllegalStateException("Supabase user session is missing")
         val stableId = UUID.nameUUIDFromBytes(
             ("4riders-order:" + row.id).toByteArray(StandardCharsets.UTF_8)
         ).toString()
@@ -116,6 +122,7 @@ object CloudSync {
 
         val payload = JSONObject()
             .put("id", stableId)
+            .put("user_id", userId)
             .put("source", "grab")
             .put("external_order_id", row.id.toString())
             .put("status", status)
