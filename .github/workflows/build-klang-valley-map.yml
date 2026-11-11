@@ -1,6 +1,7 @@
 name: Build Klang Valley map data
 
-# PRs verify the currently published archive. Trusted pushes build and publish a new one.
+# PRs verify the published archive's range support. Browser CORS is provided by
+# the Cloudflare Worker and is verified by the proxy deployment workflow.
 on:
   pull_request:
     paths:
@@ -20,8 +21,6 @@ on:
 permissions:
   contents: write
 
-# Keep PR verification separate from trusted archive builds so the two event types
-# cannot cancel each other's queued run.
 concurrency:
   group: klang-valley-map-${{ github.event_name }}
   cancel-in-progress: false
@@ -31,28 +30,20 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - name: Verify published PMTiles browser range access
+      - name: Verify published PMTiles byte-range support
         shell: bash
         run: |
           set -euo pipefail
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles"
           HEADERS="$(mktemp)"
-          FINAL_HEADERS="$(mktemp)"
           BODY="$(mktemp)"
-          trap 'rm -f "$HEADERS" "$FINAL_HEADERS" "$BODY"' EXIT
+          trap 'rm -f "$HEADERS" "$BODY"' EXIT
           STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
-            -H 'Origin: https://fourriders-custom-map.onrender.com' \
             -H 'Range: bytes=0-15' "$URL")"
-          awk 'BEGIN { RS="\\r\\n\\r\\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
           echo "Final HTTP status: $STATUS"
-          cat "$FINAL_HEADERS"
           test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
           test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
-          grep -Fqi 'access-control-allow-origin: *' "$FINAL_HEADERS" || \
-            grep -Fqi 'access-control-allow-origin: https://fourriders-custom-map.onrender.com' "$FINAL_HEADERS" || \
-            { echo "PMTiles host does not allow the map app origin via CORS"; exit 1; }
-          grep -Eqi '^access-control-expose-headers:.*content-range' "$FINAL_HEADERS" || \
-            { echo "PMTiles host does not expose Content-Range to browser JavaScript"; exit 1; }
+          grep -Eqi '^content-range: bytes 0-15/' "$HEADERS" || { echo "Missing valid Content-Range"; exit 1; }
 
   build-and-publish:
     if: github.event_name != 'pull_request'
@@ -96,25 +87,17 @@ jobs:
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Verify newly published PMTiles browser range access
+      - name: Verify newly published PMTiles byte-range support
         shell: bash
         run: |
           set -euo pipefail
           URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/klang-valley-basemap-latest/klang-valley-basemap.pmtiles"
           HEADERS="$(mktemp)"
-          FINAL_HEADERS="$(mktemp)"
           BODY="$(mktemp)"
-          trap 'rm -f "$HEADERS" "$FINAL_HEADERS" "$BODY"' EXIT
+          trap 'rm -f "$HEADERS" "$BODY"' EXIT
           STATUS="$(curl -sS -L --retry 3 -o "$BODY" -D "$HEADERS" -w '%{http_code}' \
-            -H 'Origin: https://fourriders-custom-map.onrender.com' \
             -H 'Range: bytes=0-15' "$URL")"
-          awk 'BEGIN { RS="\\r\\n\\r\\n" } NF { last=$0 } END { print last }' "$HEADERS" > "$FINAL_HEADERS"
           echo "Final HTTP status: $STATUS"
-          cat "$FINAL_HEADERS"
           test "$STATUS" = "206" || { echo "PMTiles host did not honor byte-range requests"; exit 1; }
           test "$(wc -c < "$BODY" | tr -d ' ')" = "16" || { echo "PMTiles range response was not exactly 16 bytes"; exit 1; }
-          grep -Fqi 'access-control-allow-origin: *' "$FINAL_HEADERS" || \
-            grep -Fqi 'access-control-allow-origin: https://fourriders-custom-map.onrender.com' "$FINAL_HEADERS" || \
-            { echo "PMTiles host does not allow the map app origin via CORS"; exit 1; }
-          grep -Eqi '^access-control-expose-headers:.*content-range' "$FINAL_HEADERS" || \
-            { echo "PMTiles host does not expose Content-Range to browser JavaScript"; exit 1; }
+          grep -Eqi '^content-range: bytes 0-15/' "$HEADERS" || { echo "Missing valid Content-Range"; exit 1; }
