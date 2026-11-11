@@ -6,7 +6,7 @@ const UPSTREAM = "https://github.com/kakashinal99/scan4riders/releases/download/
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, HEAD, OPTIONS",
-  "Access-Control-Allow-Headers": "Range, If-Range, If-None-Match, If-Modified-Since",
+  "Access-Control-Allow-Headers": "Authorization, Content-Type, apikey, Range, If-Range, If-None-Match, If-Modified-Since",
   "Access-Control-Expose-Headers": "Accept-Ranges, Content-Range, Content-Length, ETag, Last-Modified",
   "Access-Control-Max-Age": "86400"
 };
