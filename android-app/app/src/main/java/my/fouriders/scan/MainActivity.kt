@@ -25,6 +25,8 @@ class MainActivity : AppCompatActivity() {
     private var masterEnabled = false
     private var lastOrderFingerprint = ""
     private var lastOrderEmittedAt = 0L
+    private var cloudAccessToken = ""
+    private var cloudUserId = ""
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null && masterEnabled) {
             val capture = Intent(this, ScreenCaptureService::class.java).apply {
@@ -126,7 +128,10 @@ class MainActivity : AppCompatActivity() {
             notifyScannerState(false, "Location permission required")
             return
         }
-        ContextCompat.startForegroundService(this, Intent(this, RiderLocationService::class.java))
+        ContextCompat.startForegroundService(this, Intent(this, RiderLocationService::class.java).apply {
+            putExtra(RiderLocationService.EXTRA_ACCESS_TOKEN, cloudAccessToken)
+            putExtra(RiderLocationService.EXTRA_USER_ID, cloudUserId)
+        })
         val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         captureLauncher.launch(manager.createScreenCaptureIntent())
     }
@@ -146,6 +151,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private inner class AndroidBridge {
+        @JavascriptInterface fun setCloudSession(accessToken: String, userId: String) {
+            cloudAccessToken = accessToken
+            cloudUserId = userId
+            if (masterEnabled) {
+                startService(Intent(this@MainActivity, RiderLocationService::class.java).apply {
+                    putExtra(RiderLocationService.EXTRA_ACCESS_TOKEN, cloudAccessToken)
+                    putExtra(RiderLocationService.EXTRA_USER_ID, cloudUserId)
+                })
+            }
+        }
         @JavascriptInterface fun setMasterScannerEnabled(enabled: Boolean) {
             runOnUiThread { if (enabled) startMasterSession() else stopMasterSession() }
         }
