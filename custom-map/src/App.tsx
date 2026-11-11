@@ -535,7 +535,34 @@ export default function App() {
         setMessage('Scanner data incomplete — order was not saved');
         return;
       }
-      window.save4RidersOrder?.(order);
+      const geocode = async (label: string | undefined): Promise<{ lat?: number; lng?: number }> => {
+        if (!label || label.trim().length < 8 || label.trim().split(/\\s+/).length < 2) return {};
+        try {
+          const params = new URLSearchParams({ q: label + ', Selangor, Malaysia', limit: '1', lang: 'en' });
+          const response = await fetch(PHOTON_API + '?' + params.toString(), { headers: { Accept: 'application/json' } });
+          if (!response.ok) return {};
+          const result = await response.json() as { features?: Array<{ geometry?: { coordinates?: number[] }; properties?: { country?: string } }> };
+          const feature = result.features?.[0];
+          const coordinates = feature?.geometry?.coordinates;
+          if (!coordinates || coordinates.length < 2 || feature?.properties?.country !== 'Malaysia') return {};
+          return { lng: coordinates[0], lat: coordinates[1] };
+        } catch { return {}; }
+      };
+      void (async () => {
+        if (order.pickup_label && (order.pickup_lat === undefined || order.pickup_lng === undefined)) {
+          const point = await geocode(order.pickup_label);
+          order.pickup_lat = point.lat;
+          order.pickup_lng = point.lng;
+          order.pickup_verified = false;
+        }
+        if (order.dropoff_label && (order.dropoff_lat === undefined || order.dropoff_lng === undefined)) {
+          const point = await geocode(order.dropoff_label);
+          order.dropoff_lat = point.lat;
+          order.dropoff_lng = point.lng;
+          order.dropoff_verified = false;
+        }
+        window.save4RidersOrder?.(order);
+      })();
     };
     window.save4RidersOrder = (order) => {
       const session = cloudSessionRef.current;
