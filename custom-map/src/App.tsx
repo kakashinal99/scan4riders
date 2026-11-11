@@ -12,6 +12,14 @@ declare global {
   interface Window {
     set4RidersSession?: (accessToken: string, userId: string) => void;
     __4rSessionPending?: { accessToken: string; userId: string };
+    set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
+    update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
+    save4RidersOrder?: (order: {
+      external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
+      pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
+      pickup_lng?: number; pickup_verified?: boolean; dropoff_label?: string; dropoff_lat?: number;
+      dropoff_lng?: number; dropoff_verified?: boolean; raw_scan?: Record<string, unknown>;
+    }) => void;
   }
 }
 
@@ -53,6 +61,27 @@ type RoadSelection = { name: string; roadClass: string; direction: string; surfa
 type BuildingSelection = { name: string; address: string; addressLabel: string; category: string; block: string; reference: string; details: Array<[string, string]> };
 
 
+function decodeGooglePolyline(encoded: string): [number, number][] {
+  let index = 0, lat = 0, lng = 0;
+  const points: [number, number][] = [];
+  const read = () => {
+    let result = 0, shift = 0, byte = 0;
+    do {
+      if (index >= encoded.length) throw new Error('Invalid Google route geometry');
+      byte = encoded.charCodeAt(index++) - 63;
+      result |= (byte & 0x1f) << shift;
+      shift += 5;
+    } while (byte >= 0x20);
+    return (result & 1) ? ~(result >> 1) : (result >> 1);
+  };
+  while (index < encoded.length) {
+    lat += read();
+    lng += read();
+    points.push([lng / 1e5, lat / 1e5]);
+  }
+  return points;
+}
+
 function decodeCloudRoute(encoded: string): [number, number][] {
   let index = 0, lat = 0, lng = 0;
   const points: [number, number][] = [];
@@ -81,6 +110,9 @@ export default function App() {
   const pendingCloudRouteRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
   const lastCloudRouteKeyRef = useRef<string>('');
   const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
+  const nativeGpsRef = useRef<{ latitude: number; longitude: number; accuracy: number; heading: number | null } | null>(null);
+  const nativeGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastNativeGpsCloudWriteAtRef = useRef(0);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
@@ -175,9 +207,12 @@ export default function App() {
         typeof order.pickup_lat === 'number' && typeof order.pickup_lng === 'number' &&
         typeof order.dropoff_lat === 'number' && typeof order.dropoff_lng === 'number' &&
         order.pickup_verified === true && order.dropoff_verified === true &&
-        order.status !== 'rejected' && order.status !== 'cancelled'
+        (order.status === 'detected' || order.status === 'accepted')
       );
-      const routeKey = routeOrder ? String(routeOrder.id) : '';
+      const nativeGps = nativeGpsRef.current;
+      const routeOriginKey = nativeGps ? ':' + nativeGps.latitude.toFixed(3) + ',' + nativeGps.longitude.toFixed(3) : '';
+      const routeKey = routeOrder ? String(routeOrder.id) + routeOriginKey : '';
+      let routeStatusLabel = '';
       if (!routeKey) {
         lastCloudRouteKeyRef.current = '';
         const emptyRoute: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -187,50 +222,99 @@ export default function App() {
       if (routeOrder && routeKey && routeKey !== lastCloudRouteKeyRef.current) {
         lastCloudRouteKeyRef.current = routeKey;
         try {
-          const routeResponse = await fetch('https://valhalla1.openstreetmap.de/route', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({
-              locations: [
-                { lat: routeOrder.pickup_lat, lon: routeOrder.pickup_lng },
-                { lat: routeOrder.dropoff_lat, lon: routeOrder.dropoff_lng }
-              ],
-              costing: 'motorcycle',
-              costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
-              units: 'kilometers',
-              language: 'en-US'
-            })
-          });
-          if (!routeResponse.ok) throw new Error(`Motorcycle route returned HTTP ${routeResponse.status}`);
-          const routeData = await routeResponse.json() as { trip?: { legs?: Array<{ shape?: string }> } };
-          const shape = routeData.trip?.legs?.[0]?.shape;
-          if (!shape) throw new Error('No motorcycle route returned for this order');
-          const coordinates = decodeCloudRoute(shape);
-          const routeCollection: GeoJSON.FeatureCollection = {
-            type: 'FeatureCollection',
-            features: [{
-              type: 'Feature',
-              properties: { orderId: routeOrder.id },
-              geometry: { type: 'LineString', coordinates }
-            }]
-          };
-          pendingCloudRouteRef.current = routeCollection;
-          const routeSource = mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined;
-          routeSource?.setData(routeCollection);
-          if (coordinates.length > 1 && mapRef.current) {
-            const bounds = coordinates.reduce(
-              (acc, point) => acc.extend(point),
-              new maplibregl.LngLatBounds(coordinates[0], coordinates[0])
-            );
-            mapRef.current.fitBounds(bounds, { padding: { top: 90, right: 55, bottom: 190, left: 55 }, maxZoom: 16, duration: 850 });
+          if (nativeGps && cloudSessionRef.current) {
+            const session = cloudSessionRef.current;
+            const trafficResponse = await fetch('https://fourriders-pmtiles-proxy.onrender.com/route/traffic', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY,
+                Authorization: 'Bearer ' + session.accessToken },
+              body: JSON.stringify({
+                origin: { latitude: nativeGps.latitude, longitude: nativeGps.longitude },
+                pickup: { latitude: routeOrder.pickup_lat, longitude: routeOrder.pickup_lng },
+                dropoff: { latitude: routeOrder.dropoff_lat, longitude: routeOrder.dropoff_lng }
+              })
+            });
+            if (!trafficResponse.ok) throw new Error('Live traffic unavailable (HTTP ' + trafficResponse.status + ')');
+            const trafficData = await trafficResponse.json() as {
+              distanceMeters?: number; duration?: string; encodedPolyline?: string;
+              traffic?: Array<{ startPolylinePointIndex?: number; endPolylinePointIndex?: number; speed?: string }>;
+            };
+            if (!trafficData.encodedPolyline) throw new Error('Traffic provider returned no route geometry');
+            const coordinates = decodeGooglePolyline(trafficData.encodedPolyline);
+            const intervals = trafficData.traffic ?? [];
+            const features: GeoJSON.Feature<GeoJSON.LineString, Record<string, unknown>>[] = intervals.length
+              ? intervals.map((interval) => ({
+                  type: 'Feature',
+                  properties: { orderId: routeOrder.id, speed: interval.speed ?? 'UNKNOWN' },
+                  geometry: { type: 'LineString', coordinates: coordinates.slice(
+                    interval.startPolylinePointIndex ?? 0,
+                    (interval.endPolylinePointIndex ?? coordinates.length - 1) + 1
+                  ) }
+                })).filter((feature) => feature.geometry.coordinates.length > 1)
+              : [{ type: 'Feature', properties: { orderId: routeOrder.id, speed: 'UNKNOWN' },
+                  geometry: { type: 'LineString', coordinates } }];
+            const routeCollection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+            pendingCloudRouteRef.current = routeCollection;
+            (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(routeCollection);
+            const jam = intervals.filter((item) => item.speed === 'TRAFFIC_JAM').length;
+            const slow = intervals.filter((item) => item.speed === 'SLOW').length;
+            const trafficLabel = jam ? 'Heavy traffic' : slow ? 'Slow traffic' : intervals.length ? 'Normal traffic' : 'Traffic status unavailable';
+            const minutes = Math.max(1, Math.round(Number.parseFloat(trafficData.duration ?? '0s') / 60));
+            routeStatusLabel = 'Live traffic · ' + trafficLabel + ' · ETA ' + minutes + ' min';
+            setMessage('Live traffic · ' + trafficLabel + ' · ETA ' + minutes + ' min');
+            if (coordinates.length > 1 && mapRef.current) {
+              const bounds = coordinates.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+              mapRef.current.fitBounds(bounds, { padding: { top: 90, right: 55, bottom: 190, left: 55 }, maxZoom: 16, duration: 850 });
+            }
+          } else {
+            throw new Error('Waiting for rider GPS before traffic-aware routing');
           }
-        } catch (routeError) {
-          console.warn('[4Riders cloud order route]', routeError);
-          lastCloudRouteKeyRef.current = '';
+        } catch (trafficError) {
+          console.warn('[4Riders live traffic route]', trafficError);
+          try {
+            const routeResponse = await fetch('https://valhalla1.openstreetmap.de/route', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+              body: JSON.stringify({
+                locations: [
+                  ...(nativeGps ? [{ lat: nativeGps.latitude, lon: nativeGps.longitude }] : []),
+                  { lat: routeOrder.pickup_lat, lon: routeOrder.pickup_lng },
+                  { lat: routeOrder.dropoff_lat, lon: routeOrder.dropoff_lng }
+                ],
+                costing: 'motorcycle',
+                costing_options: { motorcycle: { use_highways: 0.5, use_trails: 0 } },
+                units: 'kilometers',
+                language: 'en-US'
+              })
+            });
+            if (!routeResponse.ok) throw new Error('Motorcycle routing service returned HTTP ' + routeResponse.status);
+            const routeData = await routeResponse.json() as { trip?: { legs?: Array<{ shape?: string }> } };
+            const shapes = (routeData.trip?.legs ?? []).map((leg) => leg.shape).filter((shape): shape is string => Boolean(shape));
+            if (!shapes.length) throw new Error('No motorcycle route returned for this order');
+            const coordinates = shapes.flatMap((shape, index) => {
+              const legCoordinates = decodeCloudRoute(shape);
+              return index ? legCoordinates.slice(1) : legCoordinates;
+            });
+            const routeCollection: GeoJSON.FeatureCollection = {
+              type: 'FeatureCollection',
+              features: [{ type: 'Feature', properties: { orderId: routeOrder.id, speed: 'UNKNOWN' },
+                geometry: { type: 'LineString', coordinates } }]
+            };
+            pendingCloudRouteRef.current = routeCollection;
+            (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(routeCollection);
+            routeStatusLabel = 'Motorcycle route ready · live traffic unavailable';
+            if (coordinates.length > 1 && mapRef.current) {
+              const bounds = coordinates.reduce((acc, point) => acc.extend(point), new maplibregl.LngLatBounds(coordinates[0], coordinates[0]));
+              mapRef.current.fitBounds(bounds, { padding: { top: 90, right: 55, bottom: 190, left: 55 }, maxZoom: 16, duration: 850 });
+            }
+          } catch (routeError) {
+            console.warn('[4Riders cloud order route]', routeError);
+            lastCloudRouteKeyRef.current = '';
+          }
         }
       }
 
-      setMessage(`Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
+      setMessage(routeStatusLabel || `Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
     } catch (error) {
       console.warn('[4Riders cloud orders]', error);
       setMessage('Cloud order sync unavailable · local map remains available');
@@ -242,11 +326,95 @@ export default function App() {
       void loadCloudOrders(accessToken, userId);
     };
     window.set4RidersSession = applySession;
+    window.set4RidersLocation = (latitude, longitude, accuracy = 25, heading = null) => {
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+      nativeGpsRef.current = { latitude, longitude, accuracy, heading };
+      const position: [number, number] = [longitude, latitude];
+      const activeMap = mapRef.current;
+      if (activeMap) {
+        if (!nativeGpsMarkerRef.current) {
+          const element = document.createElement('div');
+          element.className = 'user-location-marker';
+          element.setAttribute('aria-label', 'Your current location');
+          element.innerHTML = '<span class="user-location-pulse"></span><span class="user-location-core"></span>';
+          nativeGpsMarkerRef.current = new maplibregl.Marker({ element, anchor: 'center' }).setLngLat(position).addTo(activeMap);
+        } else nativeGpsMarkerRef.current.setLngLat(position);
+      }
+      setGpsAccuracy(Math.round(accuracy));
+      setGpsTracking(true);
+      const session = cloudSessionRef.current;
+      const now = Date.now();
+      if (session && now - lastNativeGpsCloudWriteAtRef.current >= 15000) {
+        lastNativeGpsCloudWriteAtRef.current = now;
+        void fetch(SUPABASE_URL + '/rest/v1/gps_points', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+            'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify({ user_id: session.userId, latitude, longitude,
+            accuracy_m: accuracy, heading_deg: heading, speed_mps: null })
+        }).catch((error) => console.warn('[4Riders GPS cloud sync]', error));
+      }
+      setCenterLabel('Live GPS position');
+    };
+    window.update4RidersOrderStatus = (orderId, status) => {
+      const session = cloudSessionRef.current;
+      if (!session || !orderId) return;
+      const timestampField = status === 'accepted' ? 'accepted_at' : status === 'completed' ? 'completed_at' : null;
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if (timestampField) patch[timestampField] = new Date().toISOString();
+      void fetch(SUPABASE_URL + '/rest/v1/orders?id=eq.' + encodeURIComponent(orderId) + '&user_id=eq.' + encodeURIComponent(session.userId), {
+        method: 'PATCH',
+        headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(patch)
+      }).then(async (response) => {
+        if (!response.ok) throw new Error('Order status sync failed (HTTP ' + response.status + ')');
+        await loadCloudOrders(session.accessToken, session.userId);
+      }).catch((error) => console.warn('[4Riders order status bridge]', error));
+    };
+    window.save4RidersOrder = (order) => {
+      const session = cloudSessionRef.current;
+      if (!session) { setMessage('Sign in required before saving a scanned order'); return; }
+      const payload = {
+        user_id: session.userId, source: 'grab', status: 'detected',
+        external_order_id: order.external_order_id ?? null,
+        fare_amount: Number.isFinite(order.fare_amount) ? order.fare_amount : null,
+        rider_to_pickup_m: Number.isFinite(order.rider_to_pickup_m) ? order.rider_to_pickup_m : null,
+        pickup_to_dropoff_m: Number.isFinite(order.pickup_to_dropoff_m) ? order.pickup_to_dropoff_m : null,
+        pickup_label: order.pickup_label ?? null,
+        pickup_lat: Number.isFinite(order.pickup_lat) ? order.pickup_lat : null,
+        pickup_lng: Number.isFinite(order.pickup_lng) ? order.pickup_lng : null,
+        pickup_verified: order.pickup_verified === true && Number.isFinite(order.pickup_lat) && Number.isFinite(order.pickup_lng),
+        dropoff_label: order.dropoff_label ?? null,
+        dropoff_lat: Number.isFinite(order.dropoff_lat) ? order.dropoff_lat : null,
+        dropoff_lng: Number.isFinite(order.dropoff_lng) ? order.dropoff_lng : null,
+        dropoff_verified: order.dropoff_verified === true && Number.isFinite(order.dropoff_lat) && Number.isFinite(order.dropoff_lng),
+        raw_scan: order.raw_scan ?? {}
+      };
+      void fetch(SUPABASE_URL + '/rest/v1/orders', {
+        method: 'POST',
+        headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(payload)
+      }).then(async (response) => {
+        if (!response.ok) throw new Error('Cloud order save failed (HTTP ' + response.status + ')');
+        setMessage('Scanned order saved to cloud');
+        await loadCloudOrders(session.accessToken, session.userId);
+      }).catch((error) => {
+        console.error('[4Riders native order bridge]', error);
+        setMessage(error instanceof Error ? error.message : 'Cloud order save failed');
+      });
+    };
     if (window.__4rSessionPending) {
       applySession(window.__4rSessionPending.accessToken, window.__4rSessionPending.userId);
       delete window.__4rSessionPending;
     }
-    return () => { delete window.set4RidersSession; };
+    return () => {
+      delete window.set4RidersSession;
+      delete window.set4RidersLocation;
+      delete window.save4RidersOrder;
+      delete window.update4RidersOrderStatus;
+    };
   }, [loadCloudOrders]);
 
   useEffect(() => {
@@ -529,7 +697,7 @@ export default function App() {
         type: 'line',
         source: '4r-cloud-order-route',
         layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: { 'line-color': '#36D9FF', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.8, 16, 6, 19, 8], 'line-opacity': 0.98 }
+        paint: { 'line-color': ['match', ['get', 'speed'], 'NORMAL', '#39D98A', 'SLOW', '#F4B942', 'TRAFFIC_JAM', '#FF5D62', '#36D9FF'], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 2.8, 16, 6, 19, 8], 'line-opacity': 0.98 }
       });
       activeMap.addLayer({
         id: '4r-order-points',
