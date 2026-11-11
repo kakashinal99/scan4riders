@@ -484,19 +484,7 @@ export default function App() {
       }
       setGpsAccuracy(Math.round(accuracy));
       setGpsTracking(true);
-      const session = cloudSessionRef.current;
-      const now = Date.now();
-      if (session && now - lastNativeGpsCloudWriteAtRef.current >= 15000) {
-        lastNativeGpsCloudWriteAtRef.current = now;
-        void fetch(SUPABASE_URL + '/rest/v1/gps_points', {
-          method: 'POST',
-          headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
-            'Content-Type': 'application/json', Prefer: 'return=minimal' },
-          body: JSON.stringify({ user_id: session.userId, latitude, longitude,
-            accuracy_m: accuracy, heading_deg: heading, speed_mps: null })
-        }).catch((error) => console.warn('[4Riders GPS cloud sync]', error));
-      }
-      setCenterLabel('Live GPS position');
+      // Native foreground service persists GPS points while the app is foregrounded or backgrounded.\n      setCenterLabel('Live GPS position');
     };
     window.update4RidersOrderStatus = (orderId, status) => {
       const session = cloudSessionRef.current;
