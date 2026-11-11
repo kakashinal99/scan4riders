@@ -228,6 +228,7 @@ export default function App() {
         });
       }
     } catch { /* Local sign-out still clears the device session. */ }
+    window.Android4Riders?.setMasterScannerEnabled?.(false);
     window.localStorage.removeItem('4riders.auth.session.v1');
     cloudSessionRef.current = null;
     setCloudUser(null);
