@@ -408,8 +408,8 @@ export default function App() {
       const order = {
         external_order_id: textOrUndefined(rawOrder.external_order_id ?? rawOrder.orderId),
         fare_amount: numberOrUndefined(rawOrder.fare_amount ?? rawOrder.fare),
-        rider_to_pickup_m: numberOrUndefined(rawOrder.rider_to_pickup_m ?? rawOrder.riderToPickupMeters),
-        pickup_to_dropoff_m: numberOrUndefined(rawOrder.pickup_to_dropoff_m ?? rawOrder.pickupToDropoffMeters),
+        rider_to_pickup_m: numberOrUndefined(rawOrder.rider_to_pickup_m ?? rawOrder.riderToPickupMeters) ?? (numberOrUndefined(rawOrder.rider_to_pickup_km) !== undefined ? numberOrUndefined(rawOrder.rider_to_pickup_km)! * 1000 : undefined),
+        pickup_to_dropoff_m: numberOrUndefined(rawOrder.pickup_to_dropoff_m ?? rawOrder.pickupToDropoffMeters) ?? (numberOrUndefined(rawOrder.pickup_to_dropoff_km) !== undefined ? numberOrUndefined(rawOrder.pickup_to_dropoff_km)! * 1000 : undefined),
         pickup_label: textOrUndefined(rawOrder.pickup_label ?? pickup.address ?? pickup.label),
         pickup_lat: numberOrUndefined(rawOrder.pickup_lat ?? pickup.latitude ?? pickup.lat),
         pickup_lng: numberOrUndefined(rawOrder.pickup_lng ?? pickup.longitude ?? pickup.lng ?? pickup.lon),
