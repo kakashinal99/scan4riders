@@ -26,7 +26,7 @@ class MapActivity : Activity() {
                         val token = JSONObjectString.quote(accessToken)
                         val uid = JSONObjectString.quote(userId)
                         mapView.evaluateJavascript(
-                            "window.set4RidersSession && window.set4RidersSession($token, $uid)",
+                            "window.__4rSessionPending = { accessToken: $token, userId: $uid }; if (window.set4RidersSession) { window.set4RidersSession($token, $uid); delete window.__4rSessionPending; }",
                             null
                         )
                     }
