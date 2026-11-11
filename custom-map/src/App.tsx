@@ -56,6 +56,7 @@ export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const pendingCloudOrdersRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
+  const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
@@ -106,6 +107,7 @@ export default function App() {
 
 
   const loadCloudOrders = useCallback(async (accessToken: string, userId: string) => {
+    cloudSessionRef.current = { accessToken, userId };
     try {
       const params = new URLSearchParams({
         select: 'id,status,pickup_label,pickup_lat,pickup_lng,pickup_verified,dropoff_label,dropoff_lat,dropoff_lng,dropoff_verified,scanned_at',
@@ -161,6 +163,14 @@ export default function App() {
       delete window.__4rSessionPending;
     }
     return () => { delete window.set4RidersSession; };
+  }, [loadCloudOrders]);
+
+  useEffect(() => {
+    const poll = window.setInterval(() => {
+      const session = cloudSessionRef.current;
+      if (session) void loadCloudOrders(session.accessToken, session.userId);
+    }, 5000);
+    return () => window.clearInterval(poll);
   }, [loadCloudOrders]);
 
   const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
