@@ -87,11 +87,11 @@ class ScreenCaptureService : Service() {
                     processing.set(false)
                 }
             }, handler)
-            display = projection!!.createVirtualDisplay("4RidersScreen", width, height, density,
-                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader!!.surface, null, handler)
             projection!!.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { stopWithState(false, "Screen capture stopped by Android") }
             }, handler)
+            display = projection!!.createVirtualDisplay("4RidersScreen", width, height, density,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR, reader!!.surface, null, handler)
             sendState(true, "Screen capture and OCR active")
         } catch (error: Exception) {
             stopWithState(false, error.message ?: "Unable to start screen capture")
