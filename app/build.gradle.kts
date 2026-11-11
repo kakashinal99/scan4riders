@@ -12,8 +12,13 @@ android {
         applicationId = "my.fouriders.scan"
         minSdk = 30
         targetSdk = 34
-        versionCode = 12
-        versionName = "1.1"
+        versionCode = 13
+        versionName = "1.2"
+        buildConfigField("String", "SUPABASE_URL", "\"https://nuebncvryoxehhnynnbb.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF\"")
+    }
+    buildFeatures {
+        buildConfig = true
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
