@@ -230,11 +230,11 @@ export default function App() {
         try {
           activeMap.setPaintProperty(layer.id, 'line-color', [
             'match', ['get', 'class'],
-            'motorway', '#d8a4c8', 'trunk', '#c59acb',
-            'primary', '#e0bd91', 'secondary', '#d2c49c',
-            'tertiary', '#b8b0c5', 'minor', '#a49caf',
-            'residential', '#8f899d', 'service', '#777181',
-            '#9690a2'
+            'motorway', '#22D3EE', 'trunk', '#12B8D4',
+            'primary', '#FFB020', 'secondary', '#B6F542',
+            'tertiary', '#6F9EAD', 'minor', '#5D7C89',
+            'residential', '#49616D', 'service', '#354A55',
+            '#78909C'
           ]);
         } catch { /* Some style layers use a different schema. */ }
       });
@@ -242,12 +242,12 @@ export default function App() {
         if (!layer.id.toLowerCase().includes('building')) return;
         count++;
         if (layer.type === 'fill') {
-          activeMap.setPaintProperty(layer.id, 'fill-color', '#76658f');
+          activeMap.setPaintProperty(layer.id, 'fill-color', '#263943');
           activeMap.setPaintProperty(layer.id, 'fill-opacity', 0.82);
-          activeMap.setPaintProperty(layer.id, 'fill-outline-color', '#b9a5cd');
+          activeMap.setPaintProperty(layer.id, 'fill-outline-color', '#5D8794');
         }
         if (layer.type === 'line') {
-          activeMap.setPaintProperty(layer.id, 'line-color', '#b4a2c8');
+          activeMap.setPaintProperty(layer.id, 'line-color', '#7CA6B1');
           activeMap.setPaintProperty(layer.id, 'line-opacity', 0.8);
         }
       });
@@ -271,7 +271,7 @@ export default function App() {
             'text-rotation-alignment': 'map',
             'text-rotate': ['case', ['==', ['get', 'oneway'], -1], 180, 0]
           },
-          paint: { 'text-color': '#f2d8ff', 'text-halo-color': '#30263b', 'text-halo-width': 1.4 }
+          paint: { 'text-color': '#C8F8FF', 'text-halo-color': '#071117', 'text-halo-width': 1.4 }
         });
       }
       if (activeMap.getSource('openmaptiles') && !activeMap.getLayer('4r-building-outlines')) {
@@ -282,7 +282,7 @@ export default function App() {
           'source-layer': 'building',
           minzoom: 15,
           paint: {
-            'line-color': '#b9a5cd',
+            'line-color': '#5D8794',
             'line-width': ['interpolate', ['linear'], ['zoom'], 15, 0.35, 18, 1.1],
             'line-opacity': 0.9
           }
@@ -311,8 +311,8 @@ export default function App() {
             'text-ignore-placement': false
           },
           paint: {
-            'text-color': '#f5eafc',
-            'text-halo-color': '#211a2a',
+            'text-color': '#E8FAFC',
+            'text-halo-color': '#071117',
             'text-halo-width': 1.5
           }
         });
@@ -326,23 +326,23 @@ export default function App() {
       activeMap.addLayer({
         id: '4r-road-reach-fill', type: 'fill', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: { 'fill-color': '#b58ad8', 'fill-opacity': 0.22 }
+        paint: { 'fill-color': '#22D3EE', 'fill-opacity': 0.22 }
       });
       activeMap.addLayer({
         id: '4r-road-reach-outline', type: 'line', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Polygon'],
-        paint: { 'line-color': '#d8b5f4', 'line-width': 3, 'line-opacity': 0.95 }
+        paint: { 'line-color': '#22D3EE', 'line-width': 3, 'line-opacity': 0.95 }
       });
       activeMap.addLayer({
         id: '4r-road-reach-origin', type: 'circle', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Point'],
-        paint: { 'circle-radius': 7, 'circle-color': '#f4d27b', 'circle-stroke-color': '#211a2a', 'circle-stroke-width': 2.5 }
+        paint: { 'circle-radius': 7, 'circle-color': '#FFB020', 'circle-stroke-color': '#071117', 'circle-stroke-width': 2.5 }
       });
       activeMap.addLayer({
         id: '4r-road-reach-origin-label', type: 'symbol', source: '4r-road-reach',
         filter: ['==', ['geometry-type'], 'Point'],
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': true },
-        paint: { 'text-color': '#fff2d1', 'text-halo-color': '#211a2a', 'text-halo-width': 2 }
+        paint: { 'text-color': '#fff2d1', 'text-halo-color': '#071117', 'text-halo-width': 2 }
       });
 
       // Lane geometry is fetched for the visible viewport because the standard
@@ -364,10 +364,10 @@ export default function App() {
         paint: {
           'line-color': [
             'match', ['get', 'highway'],
-            'motorway', '#d8a4c8', 'trunk', '#c59acb',
-            'primary', '#e0bd91', 'secondary', '#d2c49c',
-            'tertiary', '#b8b0c5', 'residential', '#8f899d',
-            'service', '#777181', '#9690a2'
+            'motorway', '#22D3EE', 'trunk', '#12B8D4',
+            'primary', '#FFB020', 'secondary', '#B6F542',
+            'tertiary', '#6F9EAD', 'residential', '#49616D',
+            'service', '#354A55', '#78909C'
           ],
           'line-width': ['*', ['get', 'lanes'], ['interpolate', ['linear'], ['zoom'], 14, 2.2, 18, 5.5]],
           'line-offset': ['*', ['get', 'roadOffsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
@@ -913,11 +913,11 @@ export default function App() {
         widths: ['motorway', 6.8, 'trunk', 5.9, 'primary', 5.1, 'secondary', 4.2]
       },
       premium: {
-        motorway: '#d8a4c8', trunk: '#c59acb', primary: '#e0bd91', secondary: '#d2c49c',
+        motorway: '#22D3EE', trunk: '#12B8D4', primary: '#FFB020', secondary: '#B6F542',
         widths: ['motorway', 7.0, 'trunk', 6.1, 'primary', 5.3, 'secondary', 4.4]
       },
       contrast: {
-        motorway: '#ffc15e', trunk: '#ff8d63', primary: '#e9e7df', secondary: '#91c9e2',
+        motorway: '#FFB020', trunk: '#FF6B35', primary: '#E8F1F2', secondary: '#8AC6D3',
         widths: ['motorway', 7.4, 'trunk', 6.5, 'primary', 5.7, 'secondary', 4.7]
       }
     } as const;
@@ -926,7 +926,7 @@ export default function App() {
       'match', ['get', 'class'],
       'motorway', selected.motorway, 'trunk', selected.trunk,
       'primary', selected.primary, 'secondary', selected.secondary,
-      '#9690a2'
+      '#78909C'
     ] as maplibregl.ExpressionSpecification;
     const widthExpression = [
       'interpolate', ['linear'], ['zoom'],
@@ -961,7 +961,7 @@ export default function App() {
         {activePanel === "route" && ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
         {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
         {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
-        {activePanel === "layers" && <><div className="road-style-control"><div className="road-style-heading"><b>Major road appearance</b><small>Switch style on the live map</small></div><div className="road-style-options"><button className={majorRoadStyle === "clean" ? "active" : ""} onClick={() => applyMajorRoadStyle("clean")}><i className="road-style-swatch clean" />Amber</button><button className={majorRoadStyle === "premium" ? "active" : ""} onClick={() => applyMajorRoadStyle("premium")}><i className="road-style-swatch premium" />Premium</button><button className={majorRoadStyle === "contrast" ? "active" : ""} onClick={() => applyMajorRoadStyle("contrast")}><i className="road-style-swatch contrast" />High contrast</button></div></div><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
+        {activePanel === "layers" && <><div className="road-style-control"><div className="road-style-heading"><b>Major road appearance</b><small>Switch style on the live map</small></div><div className="road-style-options"><button className={majorRoadStyle === "clean" ? "active" : ""} onClick={() => applyMajorRoadStyle("clean")}><i className="road-style-swatch clean" />Amber</button><button className={majorRoadStyle === "premium" ? "active" : ""} onClick={() => applyMajorRoadStyle("premium")}><i className="road-style-swatch premium" />Ice Blue</button><button className={majorRoadStyle === "contrast" ? "active" : ""} onClick={() => applyMajorRoadStyle("contrast")}><i className="road-style-swatch contrast" />Neon Orange</button></div></div><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
         {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>{selectedBuilding.addressLabel}</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
       <nav className="bottom-dock" aria-label="Map tools">
