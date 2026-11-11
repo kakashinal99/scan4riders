@@ -452,7 +452,9 @@ export default function App() {
             // counts the middle separator is highlighted as the opposing-flow divider.
             for (let divider = 0; divider < laneCount - 1; divider++) {
               const offsetIndex = divider - (laneCount - 2) / 2;
-              const isCenter = laneCount % 2 === 0 && Math.abs(offsetIndex) < 0.001;
+              const hasDirectionalCounts = Number.isFinite(forward) && forward > 0 && Number.isFinite(backward) && backward > 0;
+              const centerOffset = hasDirectionalCounts ? (forward - backward) / 2 : (laneCount % 2 === 0 ? 0 : Number.NaN);
+              const isCenter = Number.isFinite(centerOffset) && Math.abs(offsetIndex - centerOffset) < 0.001;
               features.push({
                 type: 'Feature',
                 id: `${way.id}-lane-${divider}`,
