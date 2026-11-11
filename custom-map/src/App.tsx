@@ -386,7 +386,7 @@ export default function App() {
         const roadLayerIds = (activeMap.getStyle().layers ?? [])
           .filter((layer) => layer.type === 'line' && (layer.id.toLowerCase().includes('transportation') || layer.id.toLowerCase().includes('road')))
           .map((layer) => layer.id);
-        if (!roadLayerIds.length) { setSelectedRoad(null); return; }
+        if (!roadLayerIds.length) { setSelectedRoad(null); setActivePanel(null); return; }
         const pad = 9;
         const box: [[number, number], [number, number]] = [
           [event.point.x - pad, event.point.y - pad],
