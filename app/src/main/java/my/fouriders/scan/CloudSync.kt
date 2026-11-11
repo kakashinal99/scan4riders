@@ -133,9 +133,6 @@ object CloudSync {
             .put("scanned_at", Instant.ofEpochMilli(row.id).toString())
             .put("raw_scan", raw)
 
-        if (row.decision == "T") {
-            payload.put("accepted_at", Instant.ofEpochMilli(System.currentTimeMillis()).toString())
-        }
 
         requestJson(
             "POST",
