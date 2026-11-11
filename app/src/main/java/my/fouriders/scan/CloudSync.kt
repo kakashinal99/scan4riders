@@ -57,6 +57,28 @@ object CloudSync {
         }
     }
 
+
+    fun deleteOrder(context: Context, localId: Long) {
+        val app = context.applicationContext
+        worker.execute {
+            try {
+                val token = accessToken(app)
+                val stableId = UUID.nameUUIDFromBytes(
+                    ("4riders-order:" + localId).toByteArray(StandardCharsets.UTF_8)
+                ).toString()
+                requestJson(
+                    "DELETE",
+                    "/rest/v1/orders?id=eq.$stableId",
+                    null,
+                    token,
+                    "return=minimal"
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Cloud delete deferred for $localId", e)
+            }
+        }
+    }
+
     fun enqueue(context: Context, row: Rec) {
         val app = context.applicationContext
         worker.execute {
