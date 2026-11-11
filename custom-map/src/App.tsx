@@ -178,6 +178,12 @@ export default function App() {
         order.status !== 'rejected' && order.status !== 'cancelled'
       );
       const routeKey = routeOrder ? String(routeOrder.id) : '';
+      if (!routeKey) {
+        lastCloudRouteKeyRef.current = '';
+        const emptyRoute: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
+        pendingCloudRouteRef.current = emptyRoute;
+        (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(emptyRoute);
+      }
       if (routeKey && routeKey !== lastCloudRouteKeyRef.current) {
         lastCloudRouteKeyRef.current = routeKey;
         try {
