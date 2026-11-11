@@ -1410,12 +1410,12 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
-      <div className="native-scanner-control">
-        <button type="button" className={nativeScannerOn ? "native-scanner-toggle active" : "native-scanner-toggle"} onClick={toggleNativeScanner}>
-          <span className={nativeScannerOn ? "native-scanner-indicator active" : "native-scanner-indicator"} />
+      <div className="native-scanner-control" style={{position:"absolute",top:"max(14px, env(safe-area-inset-top))",left:14,zIndex:20,display:"flex",flexDirection:"column",gap:5,pointerEvents:"auto"}}>
+        <button type="button" className={nativeScannerOn ? "native-scanner-toggle active" : "native-scanner-toggle"} onClick={toggleNativeScanner} style={{display:"flex",alignItems:"center",gap:9,padding:"11px 14px",borderRadius:22,border:"1px solid rgba(255,255,255,.18)",background:nativeScannerOn?"#173d32":"#171d24",color:"#f5f7f8",fontSize:11,fontWeight:800,letterSpacing:".08em",boxShadow:"0 6px 24px rgba(0,0,0,.35)"}}>
+          <span className={nativeScannerOn ? "native-scanner-indicator active" : "native-scanner-indicator"} style={{width:8,height:8,borderRadius:8,background:nativeScannerOn?"#46df9a":"#f0a33a",boxShadow:nativeScannerOn?"0 0 10px #46df9a":"none"}} />
           <span>{nativeScannerOn ? "SCANNER ON" : "SCANNER OFF"}</span>
         </button>
-        {nativeScannerMessage && <small>{nativeScannerMessage}</small>}
+        {nativeScannerMessage && <small style={{maxWidth:230,padding:"6px 9px",borderRadius:8,background:"rgba(12,16,20,.86)",color:"#cbd3d9",fontSize:10}}>{nativeScannerMessage}</small>}
       </div>
       {activePanel && <section className="map-tool-panel">
         <div className="map-tool-panel-head"><span>{activePanel === "search" ? "SEARCH PLACES" : activePanel === "route" ? "MOTORCYCLE NAVIGATION" : activePanel === "coverage" ? "ROAD COVERAGE SETTINGS" : activePanel === "road" ? "ROAD DETAILS" : activePanel === "building" ? "BUILDING DETAILS" : "MAP SETTINGS"}</span><button onClick={() => { setActivePanel(null); setPickingCoverageCenter(false); }} aria-label="Close options"><X size={18}/></button></div>
