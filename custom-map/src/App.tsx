@@ -12,6 +12,7 @@ declare global {
   interface Window {
     set4RidersSession?: (accessToken: string, userId: string) => void;
     __4rSessionPending?: { accessToken: string; userId: string };
+    __4rNativePendingOrders?: Array<Record<string, unknown>>;
     set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
     update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
     receive4RidersNativeOrder?: (order: Record<string, unknown>) => void;
@@ -592,6 +593,10 @@ export default function App() {
         setMessage(error instanceof Error ? error.message : 'Cloud order save failed');
       });
     };
+    const pendingNativeOrders = window.__4rNativePendingOrders ?? [];
+    delete window.__4rNativePendingOrders;
+    pendingNativeOrders.forEach((order) => window.receive4RidersNativeOrder?.(order));
+
     if (window.__4rSessionPending) {
       applySession(window.__4rSessionPending.accessToken, window.__4rSessionPending.userId);
       delete window.__4rSessionPending;
