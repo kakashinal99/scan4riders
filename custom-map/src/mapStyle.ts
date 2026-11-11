@@ -50,6 +50,7 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
       },
       {
         id: 'road-casing', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': '#090a0e',
           'line-width': [
@@ -58,11 +59,13 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
             14, ['match', ['get', 'class'], 'motorway', 7.2, 'trunk', 6.4, 'primary', 5.8, 'secondary', 4.8, 'tertiary', 4, 2.6],
             18, ['match', ['get', 'class'], 'motorway', 17, 'trunk', 15, 'primary', 13, 'secondary', 10, 'tertiary', 8, 4.5]
           ],
+          'line-blur': 0.15,
           'line-opacity': 0.98
         }
       },
       {
         id: 'roads', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
           'line-color': [
             'match', ['get', 'class'],
@@ -77,11 +80,13 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
             14, ['match', ['get', 'class'], 'motorway', 5.8, 'trunk', 5.2, 'primary', 4.7, 'secondary', 3.9, 'tertiary', 3.2, 2],
             18, ['match', ['get', 'class'], 'motorway', 14, 'trunk', 12.5, 'primary', 11, 'secondary', 8.5, 'tertiary', 7, 3.8]
           ],
+          'line-blur': 0.08,
           'line-opacity': 1
         }
       },
       {
         id: 'lane-markings-3plus-left', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         minzoom: 15,
         filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 3]],
         paint: {
@@ -94,6 +99,7 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
       },
       {
         id: 'lane-markings-3plus-right', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         minzoom: 15,
         filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 3]],
         paint: {
@@ -106,6 +112,7 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
       },
       {
         id: 'lane-markings-4plus-middle', type: 'line', source: 'openmaptiles', 'source-layer': 'transportation',
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         minzoom: 15,
         filter: ['all', ['has', 'lanes'], ['>=', ['to-number', ['get', 'lanes']], 4]],
         paint: {
