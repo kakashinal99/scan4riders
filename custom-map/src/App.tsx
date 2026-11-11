@@ -12,6 +12,13 @@ declare global {
   interface Window {
     set4RidersSession?: (accessToken: string, userId: string) => void;
     __4rSessionPending?: { accessToken: string; userId: string };
+    set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
+    save4RidersOrder?: (order: {
+      external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
+      pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
+      pickup_lng?: number; dropoff_label?: string; dropoff_lat?: number;
+      dropoff_lng?: number; raw_scan?: Record<string, unknown>;
+    }) => void;
   }
 }
 
@@ -81,6 +88,8 @@ export default function App() {
   const pendingCloudRouteRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
   const lastCloudRouteKeyRef = useRef<string>('');
   const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
+  const nativeGpsRef = useRef<{ latitude: number; longitude: number; accuracy: number; heading: number | null } | null>(null);
+  const nativeGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
@@ -177,7 +186,9 @@ export default function App() {
         order.pickup_verified === true && order.dropoff_verified === true &&
         order.status !== 'rejected' && order.status !== 'cancelled'
       );
-      const routeKey = routeOrder ? String(routeOrder.id) : '';
+      const nativeGps = nativeGpsRef.current;
+      const routeOriginKey = nativeGps ? ':' + nativeGps.latitude.toFixed(3) + ',' + nativeGps.longitude.toFixed(3) : '';
+      const routeKey = routeOrder ? String(routeOrder.id) + routeOriginKey : '';
       if (!routeKey) {
         lastCloudRouteKeyRef.current = '';
         const emptyRoute: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -192,6 +203,7 @@ export default function App() {
             headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
             body: JSON.stringify({
               locations: [
+                ...(nativeGps ? [{ lat: nativeGps.latitude, lon: nativeGps.longitude }] : []),
                 { lat: routeOrder.pickup_lat, lon: routeOrder.pickup_lng },
                 { lat: routeOrder.dropoff_lat, lon: routeOrder.dropoff_lng }
               ],
@@ -203,9 +215,12 @@ export default function App() {
           });
           if (!routeResponse.ok) throw new Error(`Motorcycle route returned HTTP ${routeResponse.status}`);
           const routeData = await routeResponse.json() as { trip?: { legs?: Array<{ shape?: string }> } };
-          const shape = routeData.trip?.legs?.[0]?.shape;
-          if (!shape) throw new Error('No motorcycle route returned for this order');
-          const coordinates = decodeCloudRoute(shape);
+          const shapes = (routeData.trip?.legs ?? []).map((leg) => leg.shape).filter((shape): shape is string => Boolean(shape));
+          if (!shapes.length) throw new Error('No motorcycle route returned for this order');
+          const coordinates = shapes.flatMap((shape, index) => {
+            const legCoordinates = decodeCloudRoute(shape);
+            return index ? legCoordinates.slice(1) : legCoordinates;
+          });
           const routeCollection: GeoJSON.FeatureCollection = {
             type: 'FeatureCollection',
             features: [{
@@ -242,11 +257,64 @@ export default function App() {
       void loadCloudOrders(accessToken, userId);
     };
     window.set4RidersSession = applySession;
+    window.set4RidersLocation = (latitude, longitude, accuracy = 25, heading = null) => {
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return;
+      nativeGpsRef.current = { latitude, longitude, accuracy, heading };
+      const position: [number, number] = [longitude, latitude];
+      const activeMap = mapRef.current;
+      if (activeMap) {
+        if (!nativeGpsMarkerRef.current) {
+          const element = document.createElement('div');
+          element.className = 'user-location-marker';
+          element.setAttribute('aria-label', 'Your current location');
+          element.innerHTML = '<span class="user-location-pulse"></span><span class="user-location-core"></span>';
+          nativeGpsMarkerRef.current = new maplibregl.Marker({ element, anchor: 'center' }).setLngLat(position).addTo(activeMap);
+        } else nativeGpsMarkerRef.current.setLngLat(position);
+      }
+      setGpsAccuracy(Math.round(accuracy));
+      setGpsTracking(true);
+      setCenterLabel('Live GPS position');
+    };
+    window.save4RidersOrder = (order) => {
+      const session = cloudSessionRef.current;
+      if (!session) { setMessage('Sign in required before saving a scanned order'); return; }
+      const payload = {
+        user_id: session.userId, source: 'grab', status: 'detected',
+        external_order_id: order.external_order_id ?? null,
+        fare_amount: Number.isFinite(order.fare_amount) ? order.fare_amount : null,
+        rider_to_pickup_m: Number.isFinite(order.rider_to_pickup_m) ? order.rider_to_pickup_m : null,
+        pickup_to_dropoff_m: Number.isFinite(order.pickup_to_dropoff_m) ? order.pickup_to_dropoff_m : null,
+        pickup_label: order.pickup_label ?? null,
+        pickup_lat: Number.isFinite(order.pickup_lat) ? order.pickup_lat : null,
+        pickup_lng: Number.isFinite(order.pickup_lng) ? order.pickup_lng : null,
+        dropoff_label: order.dropoff_label ?? null,
+        dropoff_lat: Number.isFinite(order.dropoff_lat) ? order.dropoff_lat : null,
+        dropoff_lng: Number.isFinite(order.dropoff_lng) ? order.dropoff_lng : null,
+        raw_scan: order.raw_scan ?? {}
+      };
+      void fetch(SUPABASE_URL + '/rest/v1/orders', {
+        method: 'POST',
+        headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(payload)
+      }).then(async (response) => {
+        if (!response.ok) throw new Error('Cloud order save failed (HTTP ' + response.status + ')');
+        setMessage('Scanned order saved to cloud');
+        await loadCloudOrders(session.accessToken, session.userId);
+      }).catch((error) => {
+        console.error('[4Riders native order bridge]', error);
+        setMessage(error instanceof Error ? error.message : 'Cloud order save failed');
+      });
+    };
     if (window.__4rSessionPending) {
       applySession(window.__4rSessionPending.accessToken, window.__4rSessionPending.userId);
       delete window.__4rSessionPending;
     }
-    return () => { delete window.set4RidersSession; };
+    return () => {
+      delete window.set4RidersSession;
+      delete window.set4RidersLocation;
+      delete window.save4RidersOrder;
+    };
   }, [loadCloudOrders]);
 
   useEffect(() => {
