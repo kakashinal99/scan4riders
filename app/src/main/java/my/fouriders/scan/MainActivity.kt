@@ -59,7 +59,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("trace", null)
-        if (crash != null) showCrash(crash) else buildUi()
+        if (crash != null) showCrash(crash) else {
+            buildUi()
+            CloudSync.syncAll(this, Store.all(this))
+        }
     }
 
 
