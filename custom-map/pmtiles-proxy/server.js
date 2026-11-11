@@ -11,12 +11,128 @@ const cors = {
   "Access-Control-Max-Age": "86400"
 };
 
+async function readJsonBody(req, maxBytes = 16384) {
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > maxBytes) throw new Error("Request body too large");
+    chunks.push(chunk);
+  }
+  return JSON.parse(Buffer.concat(chunks).toString("utf8") || "{}");
+}
+
+function sendJson(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, { ...cors, "Content-Type": "application/json", ...extraHeaders });
+  res.end(JSON.stringify(body));
+}
+
+async function verifySupabaseUser(accessToken) {
+  const supabaseUrl = process.env.SUPABASE_URL;
+  const publishableKey = process.env.SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !publishableKey) throw new Error("Supabase auth proxy is not configured");
+  const response = await fetch(supabaseUrl + "/auth/v1/user", {
+    headers: { apikey: publishableKey, Authorization: "Bearer " + accessToken },
+    signal: AbortSignal.timeout(10000)
+  });
+  if (!response.ok) return null;
+  const user = await response.json();
+  return user && typeof user.id === "string" ? user : null;
+}
+
 const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url || "/", "http://localhost").pathname;
 
   if (pathname === "/health") {
     res.writeHead(200, { ...cors, "Content-Type": "application/json" });
     res.end(JSON.stringify({ ok: true, service: "4riders-pmtiles-proxy" }));
+    return;
+  }
+
+  if (pathname === "/route/traffic") {
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors);
+      res.end();
+      return;
+    }
+    if (req.method !== "POST") {
+      sendJson(res, 405, { error: "Method not allowed" }, { Allow: "POST, OPTIONS" });
+      return;
+    }
+    const authorization = req.headers.authorization || "";
+    const accessToken = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
+    if (!accessToken) {
+      sendJson(res, 401, { error: "Authentication required" });
+      return;
+    }
+    if (!process.env.GOOGLE_MAPS_API_KEY) {
+      sendJson(res, 503, { error: "Live traffic provider is not configured" });
+      return;
+    }
+    try {
+      const user = await verifySupabaseUser(accessToken);
+      if (!user) {
+        sendJson(res, 401, { error: "Invalid or expired session" });
+        return;
+      }
+      const body = await readJsonBody(req);
+      const validPoint = (p) => p && Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
+        && Math.abs(p.latitude) <= 90 && Math.abs(p.longitude) <= 180;
+      if (!validPoint(body.origin) || !validPoint(body.pickup) || !validPoint(body.dropoff)) {
+        sendJson(res, 400, { error: "Valid origin, pickup and dropoff coordinates are required" });
+        return;
+      }
+      const requestBody = {
+        origin: { location: { latLng: { latitude: body.origin.latitude, longitude: body.origin.longitude } } },
+        intermediates: [{ location: { latLng: { latitude: body.pickup.latitude, longitude: body.pickup.longitude } } }],
+        destination: { location: { latLng: { latitude: body.dropoff.latitude, longitude: body.dropoff.longitude } } },
+        travelMode: "TWO_WHEELER",
+        routingPreference: "TRAFFIC_AWARE",
+        extraComputations: ["TRAFFIC_ON_POLYLINE"],
+        polylineQuality: "HIGH_QUALITY",
+        polylineEncoding: "ENCODED_POLYLINE",
+        languageCode: "en-MY",
+        units: "METRIC"
+      };
+      const upstream = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": process.env.GOOGLE_MAPS_API_KEY,
+          "X-Goog-FieldMask": "routes.distanceMeters,routes.duration,routes.staticDuration,routes.polyline.encodedPolyline,routes.travelAdvisory.speedReadingIntervals"
+        },
+        body: JSON.stringify(requestBody),
+        signal: AbortSignal.timeout(20000)
+      });
+      const payload = await upstream.json().catch(() => ({}));
+      if (!upstream.ok) {
+        console.error("[Google Routes]", upstream.status, payload.error?.status || "provider_error");
+        sendJson(res, upstream.status >= 500 ? 502 : upstream.status, {
+          error: "Traffic-aware motorcycle route unavailable",
+          providerStatus: payload.error?.status || null
+        });
+        return;
+      }
+      const route = payload.routes?.[0];
+      if (!route?.polyline?.encodedPolyline) {
+        sendJson(res, 502, { error: "Traffic provider returned no route" });
+        return;
+      }
+      sendJson(res, 200, {
+        distanceMeters: route.distanceMeters,
+        duration: route.duration,
+        staticDuration: route.staticDuration,
+        encodedPolyline: route.polyline.encodedPolyline,
+        traffic: route.travelAdvisory?.speedReadingIntervals || [],
+        provider: "google-routes",
+        travelMode: "TWO_WHEELER",
+        trafficAware: true,
+        userId: user.id
+      });
+    } catch (error) {
+      console.error("[Traffic route proxy]", error);
+      sendJson(res, 502, { error: error instanceof Error ? error.message : "Traffic route proxy failed" });
+    }
     return;
   }
 
