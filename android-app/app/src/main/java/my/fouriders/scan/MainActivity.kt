@@ -23,6 +23,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var web: WebView
     private var receiverRegistered = false
     private var masterEnabled = false
+    private var lastOrderFingerprint = ""
+    private var lastOrderEmittedAt = 0L
     private val captureLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK && result.data != null && masterEnabled) {
             val capture = Intent(this, ScreenCaptureService::class.java).apply {
@@ -56,8 +58,15 @@ class MainActivity : AppCompatActivity() {
                     val text = intent.getStringExtra(ScreenCaptureService.EXTRA_OCR_TEXT).orEmpty()
                     val parsed = GrabOrderParser.parse(text)
                     if (parsed != null && ::web.isInitialized) {
-                        val encoded = JSONObject.quote(parsed.toString())
-                        web.evaluateJavascript("window.receive4RidersNativeOrder?.(JSON.parse($encoded))", null)
+                        val fingerprint = listOf("fare", "rider_to_pickup_km", "pickup_to_dropoff_km", "pickup_label", "dropoff_label")
+                            .joinToString("|") { key -> parsed.optString(key, "") }
+                        val now = System.currentTimeMillis()
+                        if (fingerprint != lastOrderFingerprint || now - lastOrderEmittedAt > 12000L) {
+                            lastOrderFingerprint = fingerprint
+                            lastOrderEmittedAt = now
+                            val encoded = JSONObject.quote(parsed.toString())
+                            web.evaluateJavascript("window.receive4RidersNativeOrder?.(JSON.parse($encoded))", null)
+                        }
                     }
                 }
                 ScreenCaptureService.ACTION_CAPTURE_STATE -> {
