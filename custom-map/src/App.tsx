@@ -13,6 +13,7 @@ declare global {
     set4RidersSession?: (accessToken: string, userId: string) => void;
     __4rSessionPending?: { accessToken: string; userId: string };
     set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
+    update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
     save4RidersOrder?: (order: {
       external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
       pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
@@ -90,6 +91,7 @@ export default function App() {
   const cloudSessionRef = useRef<{ accessToken: string; userId: string } | null>(null);
   const nativeGpsRef = useRef<{ latitude: number; longitude: number; accuracy: number; heading: number | null } | null>(null);
   const nativeGpsMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const lastNativeGpsCloudWriteAtRef = useRef(0);
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
@@ -184,7 +186,7 @@ export default function App() {
         typeof order.pickup_lat === 'number' && typeof order.pickup_lng === 'number' &&
         typeof order.dropoff_lat === 'number' && typeof order.dropoff_lng === 'number' &&
         order.pickup_verified === true && order.dropoff_verified === true &&
-        order.status !== 'rejected' && order.status !== 'cancelled'
+        (order.status === 'detected' || order.status === 'accepted')
       );
       const nativeGps = nativeGpsRef.current;
       const routeOriginKey = nativeGps ? ':' + nativeGps.latitude.toFixed(3) + ',' + nativeGps.longitude.toFixed(3) : '';
@@ -273,7 +275,35 @@ export default function App() {
       }
       setGpsAccuracy(Math.round(accuracy));
       setGpsTracking(true);
+      const session = cloudSessionRef.current;
+      const now = Date.now();
+      if (session && now - lastNativeGpsCloudWriteAtRef.current >= 15000) {
+        lastNativeGpsCloudWriteAtRef.current = now;
+        void fetch(SUPABASE_URL + '/rest/v1/gps_points', {
+          method: 'POST',
+          headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+            'Content-Type': 'application/json', Prefer: 'return=minimal' },
+          body: JSON.stringify({ user_id: session.userId, latitude, longitude,
+            accuracy_m: accuracy, heading_deg: heading, speed_mps: null })
+        }).catch((error) => console.warn('[4Riders GPS cloud sync]', error));
+      }
       setCenterLabel('Live GPS position');
+    };
+    window.update4RidersOrderStatus = (orderId, status) => {
+      const session = cloudSessionRef.current;
+      if (!session || !orderId) return;
+      const timestampField = status === 'accepted' ? 'accepted_at' : status === 'completed' ? 'completed_at' : null;
+      const patch: Record<string, unknown> = { status, updated_at: new Date().toISOString() };
+      if (timestampField) patch[timestampField] = new Date().toISOString();
+      void fetch(SUPABASE_URL + '/rest/v1/orders?id=eq.' + encodeURIComponent(orderId) + '&user_id=eq.' + encodeURIComponent(session.userId), {
+        method: 'PATCH',
+        headers: { apikey: SUPABASE_PUBLISHABLE_KEY, Authorization: 'Bearer ' + session.accessToken,
+          'Content-Type': 'application/json', Prefer: 'return=minimal' },
+        body: JSON.stringify(patch)
+      }).then(async (response) => {
+        if (!response.ok) throw new Error('Order status sync failed (HTTP ' + response.status + ')');
+        await loadCloudOrders(session.accessToken, session.userId);
+      }).catch((error) => console.warn('[4Riders order status bridge]', error));
     };
     window.save4RidersOrder = (order) => {
       const session = cloudSessionRef.current;
@@ -314,6 +344,7 @@ export default function App() {
       delete window.set4RidersSession;
       delete window.set4RidersLocation;
       delete window.save4RidersOrder;
+      delete window.update4RidersOrderStatus;
     };
   }, [loadCloudOrders]);
 
