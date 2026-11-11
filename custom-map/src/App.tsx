@@ -160,6 +160,8 @@ export default function App() {
     let disposed = false;
     let map: MapLibreMap | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let laneRefreshTimer: number | null = null;
+    let laneLookupController: AbortController | null = null;
 
     const startMap = async () => {
       if (!PMTILES_URL) {
@@ -340,6 +342,118 @@ export default function App() {
         paint: { 'text-color': '#fff2d1', 'text-halo-color': '#211a2a', 'text-halo-width': 2 }
       });
 
+      // Lane geometry is fetched for the visible viewport because the standard
+      // OpenMapTiles transportation layer does not reliably retain OSM lane tags.
+      // Only ways with an explicit lanes tag are drawn; unknown lane counts stay unknown.
+      if (!activeMap.getSource('4r-live-lane-markings')) {
+        activeMap.addSource('4r-live-lane-markings', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: [] }
+        });
+      }
+      activeMap.addLayer({
+        id: '4r-live-lane-dividers',
+        type: 'line',
+        source: '4r-live-lane-markings',
+        filter: ['==', ['get', 'isCenter'], false],
+        minzoom: 14,
+        paint: {
+          'line-color': 'rgba(255,255,255,0.86)',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.7, 18, 1.25],
+          'line-offset': ['*', ['get', 'offsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
+          'line-dasharray': [2.4, 2.1],
+          'line-opacity': 0.9
+        }
+      });
+      activeMap.addLayer({
+        id: '4r-live-lane-centerline',
+        type: 'line',
+        source: '4r-live-lane-markings',
+        filter: ['==', ['get', 'isCenter'], true],
+        minzoom: 14,
+        paint: {
+          'line-color': '#f0d38a',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 18, 1.5],
+          'line-offset': ['*', ['get', 'offsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
+          'line-opacity': 0.98
+        }
+      });
+
+      const refreshLiveLaneMarkings = async () => {
+        if (activeMap.getZoom() < 14) {
+          const source = activeMap.getSource('4r-live-lane-markings') as maplibregl.GeoJSONSource | undefined;
+          source?.setData({ type: 'FeatureCollection', features: [] });
+          return;
+        }
+        laneLookupController?.abort();
+        const controller = new AbortController();
+        laneLookupController = controller;
+        const bounds = activeMap.getBounds();
+        const south = bounds.getSouth().toFixed(5);
+        const west = bounds.getWest().toFixed(5);
+        const north = bounds.getNorth().toFixed(5);
+        const east = bounds.getEast().toFixed(5);
+        const queryText = `[out:json][timeout:20];way["highway"]["lanes"](${south},${west},${north},${east});out geom;`;
+        try {
+          const response = await fetch('https://overpass-api.de/api/interpreter', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+            body: `data=${encodeURIComponent(queryText)}`,
+            signal: controller.signal
+          });
+          if (!response.ok) throw new Error(`Lane data request returned ${response.status}`);
+          const payload = await response.json() as {
+            elements?: Array<{
+              type: string;
+              id: number;
+              tags?: Record<string, string>;
+              geometry?: Array<{ lon: number; lat: number }>;
+            }>;
+          };
+          if (controller.signal.aborted || !activeMap.getSource('4r-live-lane-markings')) return;
+          const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
+          for (const way of payload.elements ?? []) {
+            const tags = way.tags ?? {};
+            const total = Number(tags.lanes);
+            const forward = Number(tags['lanes:forward']);
+            const backward = Number(tags['lanes:backward']);
+            const laneCount = Number.isFinite(forward) && forward > 0 && Number.isFinite(backward) && backward > 0
+              ? forward + backward
+              : total;
+            const geometry = way.geometry ?? [];
+            if (!Number.isInteger(laneCount) || laneCount < 2 || laneCount > 8 || geometry.length < 2) continue;
+            const coordinates = geometry.map((point) => [point.lon, point.lat] as [number, number]);
+            // A road with N lanes has N-1 internal separators. For even lane
+            // counts the middle separator is highlighted as the opposing-flow divider.
+            for (let divider = 0; divider < laneCount - 1; divider++) {
+              const offsetIndex = divider - (laneCount - 2) / 2;
+              const isCenter = laneCount % 2 === 0 && Math.abs(offsetIndex) < 0.001;
+              features.push({
+                type: 'Feature',
+                id: `${way.id}-lane-${divider}`,
+                properties: { offsetIndex, isCenter, lanes: laneCount, oneway: tags.oneway ?? 'unknown' },
+                geometry: { type: 'LineString', coordinates }
+              });
+            }
+          }
+          if (!controller.signal.aborted) {
+            const source = activeMap.getSource('4r-live-lane-markings') as maplibregl.GeoJSONSource | undefined;
+            source?.setData({ type: 'FeatureCollection', features });
+          }
+        } catch (error) {
+          if (!controller.signal.aborted) {
+            console.warn('[4Riders live lane markings]', error);
+            // Keep the basemap usable if Overpass is unavailable; never fabricate lanes.
+          }
+        }
+      };
+      const scheduleLiveLaneRefresh = () => {
+        if (laneRefreshTimer !== null) window.clearTimeout(laneRefreshTimer);
+        laneRefreshTimer = window.setTimeout(() => { void refreshLiveLaneMarkings(); }, 450);
+      };
+      activeMap.on('moveend', scheduleLiveLaneRefresh);
+      void refreshLiveLaneMarkings();
+
       // Road inspection reads only attributes actually supplied by the vector tile.
       activeMap.on('click', (event) => {
         if (pickingCoverageCenterRef.current) {
@@ -517,6 +631,8 @@ export default function App() {
     void startMap();
     return () => {
       disposed = true;
+      if (laneRefreshTimer !== null) window.clearTimeout(laneRefreshTimer);
+      laneLookupController?.abort();
       resizeObserver?.disconnect();
       roadLookupAbort.current?.abort();
       map?.remove();
