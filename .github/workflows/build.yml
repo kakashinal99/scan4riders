@@ -1,6 +1,5 @@
-name: Build APK
+name: Legacy APK build (manual only)
 on:
-  push:
   workflow_dispatch:
 jobs:
   build:
@@ -10,16 +9,12 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 17
-      - name: Build debug APK
+          java-version: '17'
+      - name: Build legacy debug APK
         run: |
           chmod +x gradlew
-          set +e
-          ./gradlew assembleDebug --no-daemon 2>&1 | tee build.log
-          code=${PIPESTATUS[0]}
-          grep -E "^e: |error:" build.log | head -30 | while IFS= read -r l; do echo "::error::${l}"; done
-          exit $code
+          ./gradlew assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4
         with:
-          name: 4riders-scan-apk
+          name: legacy-4riders-apk
           path: app/build/outputs/apk/debug/app-debug.apk
