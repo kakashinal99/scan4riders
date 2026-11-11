@@ -41,6 +41,7 @@ function readCoverageSettings(): SavedCoverageSettings {
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
+type BuildingSelection = { name: string; address: string; category: string; block: string; reference: string; details: Array<[string, string]> };
 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -60,6 +61,7 @@ export default function App() {
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
   const roadLookupAbort = useRef<AbortController | null>(null);
   const [selectedRoad, setSelectedRoad] = useState<RoadSelection | null>(null);
+  const [selectedBuilding, setSelectedBuilding] = useState<BuildingSelection | null>(null);
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchFeature[]>([]);
   const [searching, setSearching] = useState(false);
@@ -352,6 +354,35 @@ export default function App() {
           setMessage('Coverage center selected on map');
           return;
         }
+        const buildingLayerIds = (activeMap.getStyle().layers ?? [])
+          .filter((layer) => layer.type === 'fill' && layer.id.toLowerCase().includes('building'))
+          .map((layer) => layer.id);
+        const buildingHits = buildingLayerIds.length ? activeMap.queryRenderedFeatures(event.point, { layers: buildingLayerIds }) : [];
+        const building = buildingHits[0];
+        if (building) {
+          const p = building.properties ?? {};
+          const read = (...keys: string[]) => {
+            for (const key of keys) {
+              const value = p[key];
+              if (value !== undefined && value !== null && String(value).trim() !== '') return String(value).trim();
+            }
+            return '';
+          };
+          const name = read('name', 'official_name', 'short_name') || 'Unnamed building';
+          const block = read('building:part', 'block', 'block_name', 'addr:block', 'ref');
+          const streetAddress = [read('addr:housenumber', 'housenumber'), read('addr:street', 'street'), read('addr:suburb', 'suburb'), read('addr:city', 'addr:town', 'city'), read('addr:postcode', 'postcode'), read('addr:state', 'state')].filter(Boolean).join(', ');
+          const details: Array<[string, string]> = [];
+          const category = read('building', 'class') || 'Not recorded';
+          if (read('operator')) details.push(['Operator', read('operator')]);
+          if (read('brand')) details.push(['Brand', read('brand')]);
+          if (read('levels')) details.push(['Floors', read('levels')]);
+          if (read('start_date')) details.push(['Built', read('start_date')]);
+          setSelectedBuilding({ name, address: streetAddress || 'Address not available in map data', category, block, reference: read('ref', 'wikidata', 'osm_id') || 'No reference recorded', details });
+          setSelectedRoad(null);
+          setActivePanel('building');
+          return;
+        }
+        setSelectedBuilding(null);
         const roadLayerIds = (activeMap.getStyle().layers ?? [])
           .filter((layer) => layer.type === 'line' && (layer.id.toLowerCase().includes('transportation') || layer.id.toLowerCase().includes('road')))
           .map((layer) => layer.id);
@@ -642,13 +673,13 @@ export default function App() {
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
       {activePanel && <section className="map-tool-panel">
-        <div className="map-tool-panel-head"><span>{activePanel === "search" ? "SEARCH PLACES" : activePanel === "route" ? "MOTORCYCLE NAVIGATION" : activePanel === "coverage" ? "ROAD COVERAGE SETTINGS" : activePanel === "road" ? "ROAD DETAILS" : "MAP SETTINGS"}</span><button onClick={() => { setActivePanel(null); setPickingCoverageCenter(false); }} aria-label="Close options"><X size={18}/></button></div>
+        <div className="map-tool-panel-head"><span>{activePanel === "search" ? "SEARCH PLACES" : activePanel === "route" ? "MOTORCYCLE NAVIGATION" : activePanel === "coverage" ? "ROAD COVERAGE SETTINGS" : activePanel === "road" ? "ROAD DETAILS" : activePanel === "building" ? "BUILDING DETAILS" : "MAP SETTINGS"}</span><button onClick={() => { setActivePanel(null); setPickingCoverageCenter(false); }} aria-label="Close options"><X size={18}/></button></div>
         {activePanel === "search" && <><form className="dock-search-form" onSubmit={searchPlaces}><Search size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search places, roads or landmarks" aria-label="Search map"/>{query && <button type="button" onClick={() => { setQuery(""); setResults([]); }} aria-label="Clear search"><X size={15}/></button>}<button type="submit" disabled={searching}>{searching ? "…" : "Search"}</button></form>{results.length > 0 && <div className="dock-search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => { chooseResult(feature); setActivePanel(null); }}><MapPin size={15}/><span><b>{feature.properties.name || "Unnamed place"}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(", ")}</small></span></button>)}</div>}</>}
         {activePanel === "route" && ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
         {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
         {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
         {activePanel === "layers" && <><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
-        {activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
+        {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>Address</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
       <nav className="bottom-dock" aria-label="Map tools">
         <button className={activePanel === "search" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "search" ? null : "search")}><Search size={19}/><span>Search</span></button>
