@@ -237,6 +237,10 @@ export default function App() {
     setCloudUser(null);
     setNativeScannerOn(false);
     setNativeScannerMessage('Sign in to sync rider data');
+    pendingCloudOrdersRef.current = { type: 'FeatureCollection', features: [] };
+    pendingCloudRouteRef.current = { type: 'FeatureCollection', features: [] };
+    (mapRef.current?.getSource('4r-order-locations') as maplibregl.GeoJSONSource | undefined)?.setData(pendingCloudOrdersRef.current);
+    (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(pendingCloudRouteRef.current);
   };
 
   useEffect(() => {
