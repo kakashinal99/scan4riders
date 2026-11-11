@@ -15,6 +15,8 @@ declare global {
     set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
     update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
     receive4RidersNativeOrder?: (order: Record<string, unknown>) => void;
+    set4RidersNativeScannerState?: (state: 'on' | 'off', detail?: string) => void;
+    Android4Riders?: { setMasterScannerEnabled?: (enabled: boolean) => void };
     save4RidersOrder?: (order: {
       external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
       pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
@@ -119,7 +121,27 @@ export default function App() {
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
   const [activePanel, setActivePanel] = useState<string | null>(null);
   const [gpsTracking, setGpsTracking] = useState(false);
+  const [nativeScannerOn, setNativeScannerOn] = useState(false);
+  const [nativeScannerMessage, setNativeScannerMessage] = useState('');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
+  useEffect(() => {
+    window.set4RidersNativeScannerState = (state, detail = '') => {
+      setNativeScannerOn(state === 'on');
+      setNativeScannerMessage(detail);
+    };
+    return () => { delete window.set4RidersNativeScannerState; };
+  }, []);
+
+  const toggleNativeScanner = () => {
+    const next = !nativeScannerOn;
+    if (window.Android4Riders?.setMasterScannerEnabled) {
+      window.Android4Riders.setMasterScannerEnabled(next);
+      setNativeScannerMessage(next ? 'Requesting screen-capture permission…' : 'Stopping scanner…');
+    } else {
+      setNativeScannerMessage('Native scanner is available in the 4Riders Android app');
+    }
+  };
+
   const gpsWatchId = useRef<number | null>(null);
   const gpsMarkerRef = useRef<maplibregl.Marker | null>(null);
   const gpsArrowRef = useRef<SVGElement | null>(null);
@@ -1388,6 +1410,13 @@ export default function App() {
   return (
     <main className="app-shell">
       <div ref={mapNode} className="map-canvas" />
+      <div className="native-scanner-control">
+        <button type="button" className={nativeScannerOn ? "native-scanner-toggle active" : "native-scanner-toggle"} onClick={toggleNativeScanner}>
+          <span className={nativeScannerOn ? "native-scanner-indicator active" : "native-scanner-indicator"} />
+          <span>{nativeScannerOn ? "SCANNER ON" : "SCANNER OFF"}</span>
+        </button>
+        {nativeScannerMessage && <small>{nativeScannerMessage}</small>}
+      </div>
       {activePanel && <section className="map-tool-panel">
         <div className="map-tool-panel-head"><span>{activePanel === "search" ? "SEARCH PLACES" : activePanel === "route" ? "MOTORCYCLE NAVIGATION" : activePanel === "coverage" ? "ROAD COVERAGE SETTINGS" : activePanel === "road" ? "ROAD DETAILS" : activePanel === "building" ? "BUILDING DETAILS" : "MAP SETTINGS"}</span><button onClick={() => { setActivePanel(null); setPickingCoverageCenter(false); }} aria-label="Close options"><X size={18}/></button></div>
         {activePanel === "search" && <><form className="dock-search-form" onSubmit={searchPlaces}><Search size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search places, roads or landmarks" aria-label="Search map"/>{query && <button type="button" onClick={() => { setQuery(""); setResults([]); }} aria-label="Clear search"><X size={15}/></button>}<button type="submit" disabled={searching}>{searching ? "…" : "Search"}</button></form>{results.length > 0 && <div className="dock-search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => { chooseResult(feature); setActivePanel(null); }}><MapPin size={15}/><span><b>{feature.properties.name || "Unnamed place"}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(", ")}</small></span></button>)}</div>}</>}
