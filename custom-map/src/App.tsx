@@ -367,6 +367,7 @@ export default function App() {
             'service', '#777181', '#9690a2'
           ],
           'line-width': ['*', ['get', 'lanes'], ['interpolate', ['linear'], ['zoom'], 14, 2.2, 18, 5.5]],
+          'line-offset': ['*', ['get', 'roadOffsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
           'line-opacity': 0.98
         }
       });
@@ -450,28 +451,38 @@ export default function App() {
           const features: GeoJSON.Feature<GeoJSON.LineString>[] = [];
           for (const way of payload.elements ?? []) {
             const tags = way.tags ?? {};
-            const total = Number(tags.lanes);
-            const forward = Number(tags['lanes:forward']);
-            const backward = Number(tags['lanes:backward']);
-            const laneCount = Number.isFinite(forward) && forward > 0 && Number.isFinite(backward) && backward > 0
-              ? forward + backward
-              : total;
+            const parsedTotal = Number(tags.lanes);
+            const parsedForward = Number(tags['lanes:forward']);
+            const parsedBackward = Number(tags['lanes:backward']);
+            const hasTotal = Number.isInteger(parsedTotal) && parsedTotal >= 2 && parsedTotal <= 8;
+            const hasForward = Number.isInteger(parsedForward) && parsedForward >= 1 && parsedForward <= 8;
+            const hasBackward = Number.isInteger(parsedBackward) && parsedBackward >= 1 && parsedBackward <= 8;
+            const hasBothDirections = hasForward && hasBackward;
+            // Use the complete carriageway only when the total or both directional
+            // counts are explicit. If OSM records only one direction, draw only that
+            // known carriageway on its correct side instead of discarding the road.
+            const laneCount = hasBothDirections ? parsedForward + parsedBackward
+              : hasTotal ? parsedTotal
+              : hasForward ? parsedForward
+              : hasBackward ? parsedBackward : 0;
+            const partialDirection = !hasBothDirections && !hasTotal && (hasForward || hasBackward);
+            const roadOffsetIndex = partialDirection ? (hasForward ? 1 : -1) * laneCount / 2 : 0;
             const geometry = way.geometry ?? [];
             if (!Number.isInteger(laneCount) || laneCount < 2 || laneCount > 8 || geometry.length < 2) continue;
             const coordinates = geometry.map((point) => [point.lon, point.lat] as [number, number]);
             features.push({
               type: 'Feature',
               id: `${way.id}-lane-road`,
-              properties: { isRoad: true, lanes: laneCount, highway: tags.highway ?? 'road' },
+              properties: { isRoad: true, lanes: laneCount, roadOffsetIndex, highway: tags.highway ?? 'road' },
               geometry: { type: 'LineString', coordinates }
             });
-            // A road with N lanes has N-1 internal separators. For even lane
-            // counts the middle separator is highlighted as the opposing-flow divider.
+            // A road with N known lanes has N-1 internal separators. Partial
+            // directional records are offset into the known carriageway only.
             for (let divider = 0; divider < laneCount - 1; divider++) {
-              const offsetIndex = divider - (laneCount - 2) / 2;
-              const hasDirectionalCounts = Number.isFinite(forward) && forward > 0 && Number.isFinite(backward) && backward > 0;
-              const centerOffset = hasDirectionalCounts ? (forward - backward) / 2 : (laneCount % 2 === 0 ? 0 : Number.NaN);
-              const isCenter = Number.isFinite(centerOffset) && Math.abs(offsetIndex - centerOffset) < 0.001;
+              const offsetIndex = roadOffsetIndex + divider - (laneCount - 2) / 2;
+              const centerOffset = hasBothDirections ? (parsedForward - parsedBackward) / 2 : Number.NaN;
+              const isCenter = !partialDirection && Number.isFinite(centerOffset) &&
+                Math.abs(offsetIndex - centerOffset) < 0.001;
               features.push({
                 type: 'Feature',
                 id: `${way.id}-lane-${divider}`,
