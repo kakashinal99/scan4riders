@@ -75,6 +75,9 @@ export default function App() {
   const [coverageCenter, setCoverageCenter] = useState<[number, number]>(initialCoverageSettings.center);
   const [coverageCenterLabel, setCoverageCenterLabel] = useState(initialCoverageSettings.label);
   const [pickingCoverageCenter, setPickingCoverageCenter] = useState(false);
+  const [centerSearchQuery, setCenterSearchQuery] = useState('');
+  const [centerSearchResults, setCenterSearchResults] = useState<SearchFeature[]>([]);
+  const [centerSearching, setCenterSearching] = useState(false);
   const pickingCoverageCenterRef = useRef(false);
   const coverageCenterRef = useRef<[number, number]>(KLANG_VALLEY_CENTER);
   useEffect(() => { pickingCoverageCenterRef.current = pickingCoverageCenter; }, [pickingCoverageCenter]);
@@ -817,6 +820,48 @@ export default function App() {
     finally { setSearching(false); }
   };
 
+  const searchCoverageCenter = async (event: FormEvent) => {
+    event.preventDefault();
+    const term = centerSearchQuery.trim();
+    if (!term || centerSearching) return;
+    setCenterSearching(true);
+    setCenterSearchResults([]);
+    try {
+      const url = new URL(PHOTON_API);
+      url.searchParams.set('q', term);
+      url.searchParams.set('lat', String(coverageCenter[1]));
+      url.searchParams.set('lon', String(coverageCenter[0]));
+      url.searchParams.set('limit', '6');
+      const response = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!response.ok) throw new Error(`Location search failed (${response.status})`);
+      const data = await response.json() as { features?: SearchFeature[] };
+      setCenterSearchResults(data.features ?? []);
+      if (!data.features?.length) setReachMessage('No matching roads or places found. Try another name.');
+    } catch (error) {
+      console.warn('[4Riders center search]', error);
+      setReachMessage('Center search is temporarily unavailable. Try again.');
+    } finally {
+      setCenterSearching(false);
+    }
+  };
+
+  const chooseCoverageCenterResult = (feature: SearchFeature) => {
+    const [lng, lat] = feature.geometry.coordinates;
+    const p = feature.properties;
+    const label = [p.name, p.street, p.city, p.state].filter(Boolean).join(', ') || 'Selected place';
+    const nextCenter: [number, number] = [lng, lat];
+    coverageCenterRef.current = nextCenter;
+    setCoverageCenter(nextCenter);
+    setCoverageCenterLabel(label);
+    setPickingCoverageCenter(false);
+    setCenterSearchQuery('');
+    setCenterSearchResults([]);
+    setReachStatus('idle');
+    setReachMessage('Center updated. Recalculate to refresh the road coverage.');
+    setMessage('Coverage center selected from place search');
+    mapRef.current?.flyTo({ center: nextCenter, zoom: 16.5, duration: 900 });
+  };
+
   const chooseResult = (feature: SearchFeature) => {
     const [lng, lat] = feature.geometry.coordinates;
     const p = feature.properties;
@@ -917,7 +962,7 @@ export default function App() {
         {activePanel === "search" && <><form className="dock-search-form" onSubmit={searchPlaces}><Search size={18}/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search places, roads or landmarks" aria-label="Search map"/>{query && <button type="button" onClick={() => { setQuery(""); setResults([]); }} aria-label="Clear search"><X size={15}/></button>}<button type="submit" disabled={searching}>{searching ? "…" : "Search"}</button></form>{results.length > 0 && <div className="dock-search-results">{results.map((feature, i) => <button type="button" key={i} onClick={() => { chooseResult(feature); setActivePanel(null); }}><MapPin size={15}/><span><b>{feature.properties.name || "Unnamed place"}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state].filter(Boolean).join(", ")}</small></span></button>)}</div>}</>}
         {activePanel === "route" && ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
         {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
-        {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
+        {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><form className="dock-search-form coverage-center-search" onSubmit={searchCoverageCenter}><Search size={18}/><input value={centerSearchQuery} onChange={(event) => setCenterSearchQuery(event.target.value)} placeholder="Search road, building or address" aria-label="Search center point"/>{centerSearchQuery && <button type="button" onClick={() => { setCenterSearchQuery(''); setCenterSearchResults([]); }} aria-label="Clear center search"><X size={15}/></button>}<button type="submit" disabled={centerSearching || !centerSearchQuery.trim()}>{centerSearching ? "…" : "Search"}</button></form>{centerSearchResults.length > 0 && <div className="dock-search-results coverage-center-results">{centerSearchResults.map((feature, index) => <button type="button" key={index} onClick={() => chooseCoverageCenterResult(feature)}><MapPin size={15}/><span><b>{feature.properties.name || feature.properties.street || "Unnamed place"}</b><small>{[feature.properties.street, feature.properties.city, feature.properties.state, feature.properties.country].filter(Boolean).join(", ")}</small></span></button>)}</div>}<button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Or choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
         {activePanel === "layers" && <><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
         {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>{selectedBuilding.addressLabel}</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
