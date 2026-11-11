@@ -9,7 +9,7 @@ data class Rec(
     val area: String, val decision: String
 )
 
-/** Local history of scanned orders, kept on this phone only. */
+/** Local-first order history; cloud sync runs asynchronously after each upsert. */
 object Store {
     private const val KEY = "rows"
 
@@ -37,6 +37,7 @@ object Store {
         val i = rows.indexOfFirst { it.id == r.id }
         if (i >= 0) rows[i] = r else rows.add(r)
         save(ctx, rows)
+        CloudSync.enqueue(ctx, r)
     }
 
     fun delete(ctx: Context, id: Long) = save(ctx, all(ctx).filter { it.id != id })
