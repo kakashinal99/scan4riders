@@ -2,6 +2,8 @@ package my.fouriders.scan
 
 import android.content.Context
 import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -25,6 +27,22 @@ object CloudSync {
     private const val EXPIRES = "expires_at"
     private const val USER_ID = "user_id"
     private val worker = Executors.newSingleThreadExecutor()
+
+
+    fun provideSession(context: Context, onReady: (String, String) -> Unit) {
+        val app = context.applicationContext
+        worker.execute {
+            try {
+                val token = accessToken(app)
+                val userId = app.getSharedPreferences(SESSION_PREFS, Context.MODE_PRIVATE)
+                    .getString(USER_ID, null)
+                    ?: throw IllegalStateException("Supabase user session is missing")
+                Handler(Looper.getMainLooper()).post { onReady(token, userId) }
+            } catch (e: Exception) {
+                Log.e(TAG, "Unable to provide map session", e)
+            }
+        }
+    }
 
     fun syncAll(context: Context, rows: List<Rec>) {
         val app = context.applicationContext
