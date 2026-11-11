@@ -9,7 +9,7 @@ import java.util.Locale
  * A rider can review/correct details before the map treats them as navigable coordinates.
  */
 object GrabOrderParser {
-    private val farePattern = Regex("(?i)(?:RM\\s*)?([0-9]{1,3}(?:\\.[0-9]{2})?)\\s*(?:RM)?")
+    private val farePattern = Regex("(?i)(?:RM\\s*([0-9]{1,3}(?:\\.[0-9]{2})?)|([0-9]{1,3}(?:\\.[0-9]{2})?)\\s*RM)")
     private val distancePattern = Regex("(?i)([0-9]+(?:\\.[0-9]+)?)\\s*km")
     private val pickupWords = listOf("pickup", "pick up", "restaurant", "merchant", "from")
     private val dropWords = listOf("drop-off", "dropoff", "drop off", "deliver to", "to")
@@ -18,7 +18,7 @@ object GrabOrderParser {
         val lines = rawText.lines().map { it.trim() }.filter { it.isNotBlank() }
         if (lines.isEmpty()) return null
         val joined = lines.joinToString(" ")
-        val fare = farePattern.findAll(joined).mapNotNull { it.groupValues[1].toDoubleOrNull() }
+        val fare = farePattern.findAll(joined).mapNotNull { (it.groupValues[1].ifBlank { it.groupValues[2] }).toDoubleOrNull() }
             .filter { it in 1.0..500.0 }.lastOrNull() ?: return null
         val distances = distancePattern.findAll(joined).mapNotNull { it.groupValues[1].toDoubleOrNull() }.toList()
         val pickup = findLabel(lines, pickupWords)
