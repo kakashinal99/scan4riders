@@ -6,6 +6,14 @@ import RoutePlanner from './RoutePlanner';
 import type { Map as MapLibreMap } from 'maplibre-gl';
 import { Crosshair, Layers3, MapPin, Minus, Plus, Search, X, Route, LocateFixed, Home } from 'lucide-react';
 
+const SUPABASE_URL = 'https://nuebncvryoxehhnynnbb.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF';
+declare global {
+  interface Window {
+    set4RidersSession?: (accessToken: string, userId: string) => void;
+  }
+}
+
 const KLANG_VALLEY_CENTER: [number, number] = [101.55, 3.105];
 const KLANG_VALLEY_BOUNDS: [[number, number], [number, number]] = [[101.20, 2.76], [102.00, 3.62]];
 const PMTILES_URL = import.meta.env.VITE_PMTILES_URL?.trim() ?? '';
@@ -46,6 +54,7 @@ type BuildingSelection = { name: string; address: string; addressLabel: string; 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
+  const pendingCloudOrdersRef = useRef<GeoJSON.FeatureCollection>({ type: 'FeatureCollection', features: [] });
   const [ready, setReady] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [sheetCollapsed, setSheetCollapsed] = useState(true);
@@ -93,6 +102,60 @@ export default function App() {
       console.warn('[4Riders coverage settings] Could not persist settings', error);
     }
   }, [coverageRadius, coverageCenter, coverageCenterLabel]);
+
+
+  const loadCloudOrders = useCallback(async (accessToken: string, userId: string) => {
+    try {
+      const params = new URLSearchParams({
+        select: 'id,status,pickup_label,pickup_lat,pickup_lng,pickup_verified,dropoff_label,dropoff_lat,dropoff_lng,dropoff_verified,scanned_at',
+        user_id: `eq.${userId}`,
+        order: 'scanned_at.desc',
+        limit: '100'
+      });
+      const response = await fetch(`${SUPABASE_URL}/rest/v1/orders?${params.toString()}`, {
+        headers: {
+          apikey: SUPABASE_PUBLISHABLE_KEY,
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json'
+        }
+      });
+      if (!response.ok) throw new Error(`Cloud orders returned HTTP ${response.status}`);
+      const rows = await response.json() as Array<Record<string, unknown>>;
+      const features: GeoJSON.Feature<GeoJSON.Point, Record<string, unknown>>[] = [];
+      rows.forEach((order) => {
+        const status = String(order.status ?? 'detected');
+        if (typeof order.pickup_lng === 'number' && typeof order.pickup_lat === 'number') {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [order.pickup_lng, order.pickup_lat] },
+            properties: { orderId: order.id, kind: 'pickup', shortLabel: 'PICKUP', label: order.pickup_label ?? 'Pickup', status, verified: order.pickup_verified === true }
+          });
+        }
+        if (typeof order.dropoff_lng === 'number' && typeof order.dropoff_lat === 'number') {
+          features.push({
+            type: 'Feature',
+            geometry: { type: 'Point', coordinates: [order.dropoff_lng, order.dropoff_lat] },
+            properties: { orderId: order.id, kind: 'dropoff', shortLabel: 'DROP', label: order.dropoff_label ?? 'Drop-off', status, verified: order.dropoff_verified === true }
+          });
+        }
+      });
+      const collection: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features };
+      pendingCloudOrdersRef.current = collection;
+      const source = mapRef.current?.getSource('4r-order-locations') as maplibregl.GeoJSONSource | undefined;
+      source?.setData(collection);
+      setMessage(`Cloud orders loaded · ${rows.length} records · ${features.length} mapped stops`);
+    } catch (error) {
+      console.warn('[4Riders cloud orders]', error);
+      setMessage('Cloud order sync unavailable · local map remains available');
+    }
+  }, []);
+
+  useEffect(() => {
+    window.set4RidersSession = (accessToken, userId) => {
+      void loadCloudOrders(accessToken, userId);
+    };
+    return () => { delete window.set4RidersSession; };
+  }, [loadCloudOrders]);
 
   const lookupRoadTags = async (lng: number, lat: number, roadName: string, selectionKey: string) => {
     roadLookupAbort.current?.abort();
@@ -344,6 +407,55 @@ export default function App() {
         layout: { 'text-field': ['get', 'label'], 'text-font': ['Noto Sans Bold'], 'text-size': 12, 'text-offset': [0, 1.5], 'text-anchor': 'top', 'text-allow-overlap': true },
         paint: { 'text-color': '#fff2d1', 'text-halo-color': '#211a2a', 'text-halo-width': 2 }
       });
+
+      // Cloud-synced pickup and drop-off points from the authenticated rider account.
+      activeMap.addSource('4r-order-locations', {
+        type: 'geojson',
+        data: pendingCloudOrdersRef.current
+      });
+      activeMap.addLayer({
+        id: '4r-order-points',
+        type: 'circle',
+        source: '4r-order-locations',
+        paint: {
+          'circle-radius': ['interpolate', ['linear'], ['zoom'], 10, 5, 16, 9, 19, 12],
+          'circle-color': ['match', ['get', 'kind'], 'pickup', '#36D9FF', '#FFAD55'],
+          'circle-stroke-color': '#101719',
+          'circle-stroke-width': 2.5,
+          'circle-opacity': 0.98
+        }
+      });
+      activeMap.addLayer({
+        id: '4r-order-point-labels',
+        type: 'symbol',
+        source: '4r-order-locations',
+        minzoom: 14,
+        layout: {
+          'text-field': ['get', 'shortLabel'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 10,
+          'text-offset': [0, 1.4],
+          'text-anchor': 'top',
+          'text-allow-overlap': true
+        },
+        paint: {
+          'text-color': '#F5FAFC',
+          'text-halo-color': '#101719',
+          'text-halo-width': 1.6
+        }
+      });
+      activeMap.on('click', '4r-order-points', (event) => {
+        const feature = event.features?.[0];
+        if (!feature) return;
+        const coordinates = (feature.geometry as GeoJSON.Point).coordinates as [number, number];
+        const props = feature.properties ?? {};
+        new maplibregl.Popup({ closeButton: true, offset: 12 })
+          .setLngLat(coordinates)
+          .setText(`${String(props.shortLabel ?? 'STOP')} · ${String(props.label ?? 'Location')} · ${props.verified === true || props.verified === 'true' ? 'Verified address' : 'Approximate / unverified'}`)
+          .addTo(activeMap);
+      });
+      activeMap.on('mouseenter', '4r-order-points', () => { activeMap.getCanvas().style.cursor = 'pointer'; });
+      activeMap.on('mouseleave', '4r-order-points', () => { activeMap.getCanvas().style.cursor = ''; });
 
       // Lane geometry is fetched for the visible viewport because the standard
       // OpenMapTiles transportation layer does not reliably retain OSM lane tags.
