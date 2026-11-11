@@ -5,6 +5,7 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.PixelFormat
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
@@ -32,7 +33,7 @@ class ScreenCaptureService : Service() {
     private var lastCaptureAt = 0L
     private var lastText = ""
     private val processing = AtomicBoolean(false)
-    private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
+    private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
 
     override fun onCreate() {
         super.onCreate()
@@ -66,7 +67,9 @@ class ScreenCaptureService : Service() {
                 lastCaptureAt = now
                 val image = source.acquireLatestImage() ?: run { processing.set(false); return@setOnImageAvailableListener }
                 try {
-                    val input = InputImage.fromMediaImage(image, 0)
+                    val bitmap = imageToBitmap(image)
+                    image.close()
+                    val input = InputImage.fromBitmap(bitmap, 0)
                     recognizer.process(input)
                         .addOnSuccessListener { result ->
                             val text = result.text.trim()
@@ -75,9 +78,9 @@ class ScreenCaptureService : Service() {
                                 sendBroadcast(Intent(ACTION_OCR_TEXT).setPackage(packageName).putExtra(EXTRA_OCR_TEXT, text))
                             }
                         }
-                        .addOnCompleteListener { image.close(); processing.set(false) }
+                        .addOnCompleteListener { bitmap.recycle(); processing.set(false) }
                 } catch (_: Exception) {
-                    image.close()
+                    if (!image.isClosed) image.close()
                     processing.set(false)
                 }
             }, handler)
@@ -90,6 +93,19 @@ class ScreenCaptureService : Service() {
         } catch (error: Exception) {
             stopWithState(false, error.message ?: "Unable to start screen capture")
         }
+    }
+
+    private fun imageToBitmap(image: android.media.Image): Bitmap {
+        val plane = image.planes[0]
+        val buffer = plane.buffer
+        val pixelStride = plane.pixelStride
+        val paddedWidth = image.width + (plane.rowStride - pixelStride * image.width) / pixelStride
+        val padded = Bitmap.createBitmap(paddedWidth, image.height, Bitmap.Config.ARGB_8888)
+        buffer.rewind()
+        padded.copyPixelsFromBuffer(buffer)
+        val cropped = Bitmap.createBitmap(padded, 0, 0, image.width, image.height)
+        if (cropped !== padded) padded.recycle()
+        return cropped
     }
 
     private fun stopWithState(active: Boolean, detail: String) {
@@ -107,7 +123,7 @@ class ScreenCaptureService : Service() {
         reader?.close()
         projection?.stop()
         worker?.quitSafely()
-        if (::recognizer.isInitialized) recognizer.close()
+        recognizer.close()
         super.onDestroy()
     }
 
