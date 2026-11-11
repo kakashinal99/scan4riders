@@ -57,7 +57,7 @@ export default function App() {
   const gpsArrowRef = useRef<SVGElement | null>(null);
   const lastGpsFixAt = useRef<number>(0);
   const [buildingsOn, setBuildingsOn] = useState(true);
-  const [majorRoadStyle, setMajorRoadStyle] = useState<'clean' | 'premium' | 'contrast'>('premium');
+  const [majorRoadStyle, setMajorRoadStyle] = useState<'clean' | 'premium' | 'contrast'>('clean');
   const [buildingCount, setBuildingCount] = useState<number | null>(null);
   const [namedBuildingCount, setNamedBuildingCount] = useState<number | null>(null);
   const roadLookupAbort = useRef<AbortController | null>(null);
@@ -221,6 +221,7 @@ export default function App() {
     activeMap.on('load', () => {
       requestAnimationFrame(() => map?.resize());
       const layers = activeMap.getStyle().layers ?? [];
+      // Start with Palette A (Graphite & Amber) on the actual vector road layer.
       let count = 0;
       // Keep the road hierarchy legible and visually distinct at every useful zoom.
       layers.forEach((layer) => {
@@ -316,6 +317,7 @@ export default function App() {
           }
         });
       }
+      applyMajorRoadStyle('clean');
       // Road-distance coverage overlay, calculated from the actual OSM road graph.
       activeMap.addSource('4r-road-reach', {
         type: 'geojson',
@@ -907,8 +909,8 @@ export default function App() {
 
     const palettes = {
       clean: {
-        motorway: '#f0c36d', trunk: '#dfad69', primary: '#d5c7ad', secondary: '#b8b0a2',
-        widths: ['motorway', 6.4, 'trunk', 5.7, 'primary', 5.0, 'secondary', 4.1]
+        motorway: '#F4B942', trunk: '#D99A32', primary: '#B9A17A', secondary: '#777F89',
+        widths: ['motorway', 6.8, 'trunk', 5.9, 'primary', 5.1, 'secondary', 4.2]
       },
       premium: {
         motorway: '#d8a4c8', trunk: '#c59acb', primary: '#e0bd91', secondary: '#d2c49c',
@@ -959,7 +961,7 @@ export default function App() {
         {activePanel === "route" && ready && mapRef.current && <RoutePlanner map={mapRef.current} />}
         {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
         {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
-        {activePanel === "layers" && <><div className="road-style-control"><div className="road-style-heading"><b>Major road appearance</b><small>Switch style on the live map</small></div><div className="road-style-options"><button className={majorRoadStyle === "clean" ? "active" : ""} onClick={() => applyMajorRoadStyle("clean")}><i className="road-style-swatch clean" />Clean</button><button className={majorRoadStyle === "premium" ? "active" : ""} onClick={() => applyMajorRoadStyle("premium")}><i className="road-style-swatch premium" />Premium</button><button className={majorRoadStyle === "contrast" ? "active" : ""} onClick={() => applyMajorRoadStyle("contrast")}><i className="road-style-swatch contrast" />High contrast</button></div></div><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
+        {activePanel === "layers" && <><div className="road-style-control"><div className="road-style-heading"><b>Major road appearance</b><small>Switch style on the live map</small></div><div className="road-style-options"><button className={majorRoadStyle === "clean" ? "active" : ""} onClick={() => applyMajorRoadStyle("clean")}><i className="road-style-swatch clean" />Amber</button><button className={majorRoadStyle === "premium" ? "active" : ""} onClick={() => applyMajorRoadStyle("premium")}><i className="road-style-swatch premium" />Premium</button><button className={majorRoadStyle === "contrast" ? "active" : ""} onClick={() => applyMajorRoadStyle("contrast")}><i className="road-style-swatch contrast" />High contrast</button></div></div><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
         {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>{selectedBuilding.addressLabel}</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
       <nav className="bottom-dock" aria-label="Map tools">
