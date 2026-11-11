@@ -41,7 +41,7 @@ function readCoverageSettings(): SavedCoverageSettings {
 
 type SearchFeature = { geometry: { coordinates: [number, number] }; properties: { name?: string; street?: string; city?: string; state?: string; country?: string } };
 type RoadSelection = { name: string; roadClass: string; direction: string; surface: string; access: string; structure: string; lanes: string; selectionKey: string };
-type BuildingSelection = { name: string; address: string; category: string; block: string; reference: string; details: Array<[string, string]> };
+type BuildingSelection = { name: string; address: string; addressLabel: string; category: string; block: string; reference: string; details: Array<[string, string]> };
 
 export default function App() {
   const mapNode = useRef<HTMLDivElement>(null);
@@ -369,17 +369,38 @@ export default function App() {
             return '';
           };
           const name = read('name', 'official_name', 'short_name') || 'Unnamed building';
-          const block = read('building:part', 'block', 'block_name', 'addr:block', 'ref');
-          const streetAddress = [read('addr:housenumber', 'housenumber'), read('addr:street', 'street'), read('addr:suburb', 'suburb'), read('addr:city', 'addr:town', 'city'), read('addr:postcode', 'postcode'), read('addr:state', 'state')].filter(Boolean).join(', ');
+          // Keep block identification separate from generic OSM references.
+          const block = read('block', 'block_name', 'addr:block');
+          const taggedAddress = [read('addr:housenumber', 'housenumber'), read('addr:street', 'street'), read('addr:suburb', 'suburb'), read('addr:city', 'addr:town', 'city'), read('addr:postcode', 'postcode'), read('addr:state', 'state')].filter(Boolean).join(', ');
           const details: Array<[string, string]> = [];
-          const category = read('building', 'class') || 'Not recorded';
+          const category = read('building', 'kind', 'kind_detail', 'class') || 'Not recorded';
           if (read('operator')) details.push(['Operator', read('operator')]);
           if (read('brand')) details.push(['Brand', read('brand')]);
           if (read('levels')) details.push(['Floors', read('levels')]);
           if (read('start_date')) details.push(['Built', read('start_date')]);
-          setSelectedBuilding({ name, address: streetAddress || 'Address not available in map data', category, block, reference: read('ref', 'wikidata', 'osm_id') || 'No reference recorded', details });
+          const reference = read('ref', 'wikidata', 'osm_id') || (building.id !== undefined ? String(building.id) : 'No reference recorded');
+          const selection = { name, address: taggedAddress || 'Address not available in building tile', addressLabel: taggedAddress ? 'Address from map data' : 'Nearby geocoded address', category, block, reference, details };
+          setSelectedBuilding(selection);
           setSelectedRoad(null);
           setActivePanel('building');
+          // The OpenMapTiles building layer often omits full address tags.
+          // Reverse geocoding gives nearby street context; it is labelled as such,
+          // never presented as a verified unit/building address.
+          if (!taggedAddress) {
+            const lat = event.lngLat.lat, lon = event.lngLat.lng;
+            fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lon}`)
+              .then((response) => { if (!response.ok) throw new Error('Reverse geocoder unavailable'); return response.json(); })
+              .then((payload: { features?: Array<{ properties?: Record<string, unknown> }> }) => {
+                const p = payload.features?.[0]?.properties ?? {};
+                const value = (...keys: string[]) => {
+                  for (const key of keys) { const v = p[key]; if (typeof v === 'string' && v.trim()) return v.trim(); }
+                  return '';
+                };
+                const nearby = [value('housenumber'), value('street'), value('district'), value('city'), value('postcode'), value('state')].filter(Boolean).join(', ');
+                if (nearby) setSelectedBuilding((current) => current?.reference === reference ? { ...current, address: nearby, addressLabel: 'Nearby address · geocoded, not verified for this building' } : current);
+              })
+              .catch((error) => console.warn('[4Riders building reverse geocode]', error));
+          }
           return;
         }
         setSelectedBuilding(null);
@@ -679,7 +700,7 @@ export default function App() {
         {activePanel === "route" && !ready && <p className="tool-message">Navigation will be available when the map is ready.</p>}
         {activePanel === "coverage" && <><span className="coverage-setting-label">CENTER POINT</span><strong className="coverage-center-name">{coverageCenterLabel}</strong><small className="coverage-coordinates">{coverageCenter[1].toFixed(5)}, {coverageCenter[0].toFixed(5)}</small><button className={pickingCoverageCenter ? "coverage-pick active" : "coverage-pick"} onClick={() => setPickingCoverageCenter((value) => !value)}>{pickingCoverageCenter ? "Tap map to set center…" : "Choose center on map"}</button><span className="coverage-setting-label">ROAD DISTANCE · KM</span><div className="coverage-radius-row"><input type="number" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Math.max(1, Math.min(100, Number(event.target.value) || 1)))}/><input type="range" min="1" max="100" step="1" value={coverageRadius} onChange={(event) => setCoverageRadius(Number(event.target.value))}/></div><div className="coverage-presets">{[10,15,20,25,30,40,50].map((value) => <button key={value} className={coverageRadius === value ? "selected" : ""} onClick={() => setCoverageRadius(value)}>{value}</button>)}</div><button className="coverage-apply" onClick={calculateRoadReach} disabled={reachStatus === "loading"}>{reachStatus === "loading" ? "Calculating…" : "Apply & calculate coverage"}</button><small className="coverage-footnote">Motorcycle road-network distance, not a straight-line circle. Maximum 100 km.</small>{reachMessage && <p className="tool-message">{reachMessage}</p>}</>}
         {activePanel === "layers" && <><div className="dock-setting-row"><div><b>Building footprints</b><small>Show or hide 2D building outlines</small></div><button className={buildingsOn ? "dock-toggle on" : "dock-toggle"} onClick={toggleBuildings}>{buildingsOn ? "ON" : "OFF"}</button></div><div className="dock-setting-row"><div><b>Map zoom</b><small>Adjust map scale</small></div><div className="dock-zoom"><button onClick={() => mapRef.current?.zoomOut()} aria-label="Zoom out"><Minus size={17}/></button><button onClick={() => mapRef.current?.zoomIn()} aria-label="Zoom in"><Plus size={17}/></button></div></div><div className="dock-setting-row"><div><b>Map data</b><small>4Riders Klang Valley · OpenStreetMap</small></div><span className={ready ? "status-dot ready" : "status-dot"}/></div></>}
-        {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>Address</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
+        {activePanel === "building" && selectedBuilding && <div className="building-inspector"><div className="building-inspector-title"><span className="building-inspector-icon">⌂</span><div><strong>{selectedBuilding.name}</strong><small>{selectedBuilding.category}</small></div></div><div className="building-inspector-row"><span>Complex / building</span><b>{selectedBuilding.name}</b></div><div className="building-inspector-row"><span>Block</span><b>{selectedBuilding.block || "Not recorded separately"}</b></div><div className="building-inspector-row"><span>{selectedBuilding.addressLabel}</span><b>{selectedBuilding.address}</b></div>{selectedBuilding.details.map(([label, value]) => <div className="building-inspector-row" key={label}><span>{label}</span><b>{value}</b></div>)}<div className="building-inspector-foot">Map reference: {selectedBuilding.reference}. Block and unit details appear only when the source data contains them.</div></div>}{activePanel === "road" && selectedRoad && <><strong className="coverage-center-name">{selectedRoad.name}</strong><div className="road-tags"><span>{selectedRoad.roadClass}</span><span>{selectedRoad.direction}</span></div><div className="road-detail-grid"><div><span>Surface</span><b>{selectedRoad.surface}</b></div><div><span>Access</span><b>{selectedRoad.access}</b></div><div><span>Structure</span><b>{selectedRoad.structure}</b></div><div><span>Lane count</span><b>{selectedRoad.lanes}</b></div></div></>}
       </section>}
       <nav className="bottom-dock" aria-label="Map tools">
         <button className={activePanel === "search" ? "selected" : ""} onClick={() => setActivePanel(activePanel === "search" ? null : "search")}><Search size={19}/><span>Search</span></button>
