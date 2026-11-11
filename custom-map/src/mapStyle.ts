@@ -130,20 +130,6 @@ export function buildMapStyle(archiveUrl: string): StyleSpecification {
         paint: { 'text-color': '#d9d2df', 'text-halo-color': '#17151c', 'text-halo-width': 1.4 }
       },
       {
-        id: 'building-names', type: 'symbol', source: 'openmaptiles', 'source-layer': 'building',
-        minzoom: 16,
-        filter: ['all', ['has', 'name'], ['!=', ['get', 'name'], '']],
-        layout: {
-          'symbol-placement': 'point',
-          'text-field': ['get', 'name'],
-          'text-font': ['Noto Sans Regular'],
-          'text-size': 10,
-          'text-max-width': 10,
-          'text-padding': 2
-        },
-        paint: { 'text-color': '#f5eafc', 'text-halo-color': '#211a2a', 'text-halo-width': 1.5 }
-      },
-      {
         id: 'place-names', type: 'symbol', source: 'openmaptiles', 'source-layer': 'place',
         minzoom: 5,
         filter: ['has', 'name'],
