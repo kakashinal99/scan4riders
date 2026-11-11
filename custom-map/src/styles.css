@@ -103,3 +103,16 @@
 .user-location-arrow path{fill:#f7fbff;stroke:#1879d0;stroke-width:1.5;stroke-linejoin:round}
 .user-location-marker.has-heading .user-location-arrow{opacity:1}
 .user-location-marker.has-heading .user-location-core{transform:scale(.72)}
+
+
+/* Building inspection: display only attributes present in the vector feature. */
+.building-inspector{display:grid;gap:0}
+.building-inspector-title{display:flex;align-items:center;gap:12px;padding:3px 0 14px;border-bottom:1px solid #ffffff18}
+.building-inspector-icon{width:42px;height:42px;display:grid;place-items:center;border:1px solid #b99bd855;border-radius:13px;background:#9273ad22;color:#c6a0f6;font-size:27px}
+.building-inspector-title strong,.building-inspector-title small{display:block}
+.building-inspector-title strong{color:#f7f1fc;font-size:16px;line-height:1.25}
+.building-inspector-title small{margin-top:4px;color:#b8a6c8;font-size:10px;text-transform:capitalize}
+.building-inspector-row{display:grid;grid-template-columns:minmax(90px,.7fr) minmax(0,1.3fr);gap:12px;padding:12px 0;border-bottom:1px solid #ffffff12}
+.building-inspector-row span{color:#a99fb2;font-size:10px}
+.building-inspector-row b{color:#eee7f4;font-size:11px;font-weight:650;text-align:right;overflow-wrap:anywhere;line-height:1.45}
+.building-inspector-foot{margin-top:12px;padding:10px;border:1px solid #ffffff12;border-radius:10px;background:#ffffff07;color:#9d94a8;font-size:9px;line-height:1.5}
