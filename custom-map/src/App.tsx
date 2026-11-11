@@ -380,12 +380,14 @@ export default function App() {
         source: '4r-live-lane-markings',
         filter: ['==', ['get', 'isCenter'], false],
         minzoom: 13,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': 'rgba(255,255,255,0.86)',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.7, 18, 1.25],
+          // Cool neon lane dividers stay visible without competing with road hierarchy.
+          'line-color': '#BCEEF5',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.65, 18, 1.15],
           'line-offset': ['*', ['get', 'offsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
           'line-dasharray': [2.4, 2.1],
-          'line-opacity': 0.9
+          'line-opacity': 0.78
         }
       });
       activeMap.addLayer({
@@ -394,11 +396,13 @@ export default function App() {
         source: '4r-live-lane-markings',
         filter: ['==', ['get', 'isCenter'], true],
         minzoom: 13,
+        layout: { 'line-cap': 'round', 'line-join': 'round' },
         paint: {
-          'line-color': '#f0d38a',
-          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.9, 18, 1.5],
+          // Amber centerline is the restrained contrast accent in Neon Night.
+          'line-color': '#FFB020',
+          'line-width': ['interpolate', ['linear'], ['zoom'], 14, 0.85, 18, 1.35],
           'line-offset': ['*', ['get', 'offsetIndex'], ['interpolate', ['linear'], ['zoom'], 14, 1.8, 18, 4.5]],
-          'line-opacity': 0.98
+          'line-opacity': 0.92
         }
       });
 
