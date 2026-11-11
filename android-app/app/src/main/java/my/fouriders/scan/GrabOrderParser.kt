@@ -12,7 +12,7 @@ object GrabOrderParser {
     private val farePattern = Regex("(?i)(?:RM\\s*([0-9]{1,3}(?:\\.[0-9]{2})?)|([0-9]{1,3}(?:\\.[0-9]{2})?)\\s*RM)")
     private val distancePattern = Regex("(?i)([0-9]+(?:\\.[0-9]+)?)\\s*km")
     private val pickupWords = listOf("pickup", "pick up", "restaurant", "merchant", "from")
-    private val dropWords = listOf("drop-off", "dropoff", "drop off", "deliver to", "to")
+    private val dropWords = listOf("drop-off", "dropoff", "drop off", "deliver to", "delivery address", "to")
 
     fun parse(rawText: String): JSONObject? {
         val lines = rawText.lines().map { it.trim() }.filter { it.isNotBlank() }
@@ -39,7 +39,12 @@ object GrabOrderParser {
     }
 
     private fun findLabel(lines: List<String>, markers: List<String>): String {
-        val index = lines.indexOfFirst { line -> markers.any { line.contains(it, ignoreCase = true) } }
+        val index = lines.indexOfFirst { line ->
+            markers.any { marker ->
+                if (marker == "to") line.trim().equals("to", ignoreCase = true)
+                else line.contains(marker, ignoreCase = true)
+            }
+        }
         if (index < 0) return ""
         return lines.drop(index + 1).firstOrNull { it.length >= 3 && !it.matches(Regex("(?i).*RM\\s*[0-9].*")) }.orEmpty()
     }
