@@ -13,6 +13,8 @@ android {
         targetSdk = 35
         versionCode = 15
         versionName = "1.4"
+        buildConfigField("String", "SUPABASE_URL", "\"https://nuebncvryoxehhnynnbb.supabase.co\"")
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", "\"sb_publishable_Z6tTqwY3w21sMYywXT-zYg_hbM0V1oF\"")
     }
 
     buildFeatures { buildConfig = true }
