@@ -16,7 +16,7 @@ declare global {
     update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
     receive4RidersNativeOrder?: (order: Record<string, unknown>) => void;
     set4RidersNativeScannerState?: (state: 'on' | 'off', detail?: string) => void;
-    Android4Riders?: { setMasterScannerEnabled?: (enabled: boolean) => void };
+    Android4Riders?: { setMasterScannerEnabled?: (enabled: boolean) => void; setCloudSession?: (accessToken: string, userId: string) => void };
     save4RidersOrder?: (order: {
       external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
       pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
@@ -140,6 +140,7 @@ export default function App() {
     const saved = { access_token: accessToken, refresh_token: refreshToken, expires_at: expiresAt, user };
     window.localStorage.setItem('4riders.auth.session.v1', JSON.stringify(saved));
     setCloudUser({ id: user.id, email: user.email ?? '' });
+    window.Android4Riders?.setCloudSession?.(accessToken, user.id);
     if (window.set4RidersSession) window.set4RidersSession(accessToken, user.id);
     else window.__4rSessionPending = { accessToken, userId: user.id };
   };
@@ -161,6 +162,7 @@ export default function App() {
           if (!cancelled) persistAuthSession(next);
         } else if (saved.access_token && saved.user?.id && !cancelled) {
           setCloudUser({ id: saved.user.id, email: saved.user.email ?? '' });
+          window.Android4Riders?.setCloudSession?.(saved.access_token, saved.user.id);
           if (window.set4RidersSession) window.set4RidersSession(saved.access_token, saved.user.id);
           else window.__4rSessionPending = { accessToken: saved.access_token, userId: saved.user.id };
         }
@@ -229,6 +231,7 @@ export default function App() {
       }
     } catch { /* Local sign-out still clears the device session. */ }
     window.Android4Riders?.setMasterScannerEnabled?.(false);
+    window.Android4Riders?.setCloudSession?.('', '');
     window.localStorage.removeItem('4riders.auth.session.v1');
     cloudSessionRef.current = null;
     setCloudUser(null);
