@@ -16,7 +16,8 @@ on:
       - ".github/workflows/build-klang-valley-map.yml"
   workflow_dispatch:
   schedule:
-    - cron: "20 2 1 * *"
+    # Refresh OSM-derived regional basemap weekly from the latest Geofabrik extract.
+    - cron: "20 2 * * 1"
 
 permissions:
   contents: write
