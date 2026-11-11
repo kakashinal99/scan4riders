@@ -27,7 +27,7 @@ jobs:
             SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | sort | tail -n 1)"
           fi
           test -x "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
       - name: Build debug APK
         run: gradle -p android-app :app:assembleDebug --no-daemon
