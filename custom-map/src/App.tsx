@@ -184,7 +184,7 @@ export default function App() {
         pendingCloudRouteRef.current = emptyRoute;
         (mapRef.current?.getSource('4r-cloud-order-route') as maplibregl.GeoJSONSource | undefined)?.setData(emptyRoute);
       }
-      if (routeKey && routeKey !== lastCloudRouteKeyRef.current) {
+      if (routeOrder && routeKey && routeKey !== lastCloudRouteKeyRef.current) {
         lastCloudRouteKeyRef.current = routeKey;
         try {
           const routeResponse = await fetch('https://valhalla1.openstreetmap.de/route', {
