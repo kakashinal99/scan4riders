@@ -698,10 +698,24 @@ class OverlayService : Service() {
         val rpk = v.rpk ?: return
         val id = prefs.getLong("curId", 0L)
         if (id == 0L) return
-        val stop = Session.stops.values.firstOrNull { it.collect } ?: Session.stops.values.firstOrNull()
-        val area = Store.areaOf(stop?.address.orEmpty())
+        val stops = Session.stops.values.toList()
+        val pickup = stops.firstOrNull { it.collect } ?: stops.firstOrNull()
+        val dropoff = stops.lastOrNull { !it.collect } ?: stops.lastOrNull()
+        val pickupHit = pickup?.let { Session.geo[it.name + "|" + it.address] }
+        val dropoffHit = dropoff?.let { Session.geo[it.name + "|" + it.address] }
+        val area = Store.areaOf(pickup?.address.orEmpty())
         val keep = Store.get(this, id)?.decision.orEmpty()
-        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
+        Store.upsert(this, Rec(
+            id, v.word, rpk, v.fare, v.km, area, decision ?: keep,
+            pickupLabel = pickup?.let { "${it.name}, ${it.address}" }.orEmpty(),
+            pickupLat = pickupHit?.p?.lat,
+            pickupLng = pickupHit?.p?.lon,
+            pickupVerified = pickupHit?.level == 0,
+            dropoffLabel = dropoff?.let { "${it.name}, ${it.address}" }.orEmpty(),
+            dropoffLat = dropoffHit?.p?.lat,
+            dropoffLng = dropoffHit?.p?.lon,
+            dropoffVerified = dropoffHit?.level == 0
+        ))
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
