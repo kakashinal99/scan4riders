@@ -128,10 +128,16 @@ object CloudSync {
             .put("status", status)
             .put("fare_amount", row.fare)
             .put("pickup_to_dropoff_m", (row.km * 1000.0).toInt())
-            .put("pickup_verified", false)
-            .put("dropoff_verified", false)
+            .put("pickup_label", row.pickupLabel)
+            .put("pickup_verified", row.pickupVerified)
+            .put("dropoff_label", row.dropoffLabel)
+            .put("dropoff_verified", row.dropoffVerified)
             .put("scanned_at", Instant.ofEpochMilli(row.id).toString())
             .put("raw_scan", raw)
+        row.pickupLat?.let { payload.put("pickup_lat", it) }
+        row.pickupLng?.let { payload.put("pickup_lng", it) }
+        row.dropoffLat?.let { payload.put("dropoff_lat", it) }
+        row.dropoffLng?.let { payload.put("dropoff_lng", it) }
 
 
         requestJson(
