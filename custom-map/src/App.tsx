@@ -14,6 +14,7 @@ declare global {
     __4rSessionPending?: { accessToken: string; userId: string };
     set4RidersLocation?: (latitude: number, longitude: number, accuracy?: number, heading?: number | null) => void;
     update4RidersOrderStatus?: (orderId: string, status: 'accepted' | 'rejected' | 'completed' | 'cancelled') => void;
+    receive4RidersNativeOrder?: (order: Record<string, unknown>) => void;
     save4RidersOrder?: (order: {
       external_order_id?: string; fare_amount?: number; rider_to_pickup_m?: number;
       pickup_to_dropoff_m?: number; pickup_label?: string; pickup_lat?: number;
@@ -372,6 +373,37 @@ export default function App() {
         await loadCloudOrders(session.accessToken, session.userId);
       }).catch((error) => console.warn('[4Riders order status bridge]', error));
     };
+    window.receive4RidersNativeOrder = (rawOrder) => {
+      const numberOrUndefined = (value: unknown): number | undefined => {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
+        return undefined;
+      };
+      const textOrUndefined = (value: unknown): string | undefined =>
+        typeof value === 'string' && value.trim() ? value.trim() : undefined;
+      const pickup = rawOrder.pickup && typeof rawOrder.pickup === 'object' ? rawOrder.pickup as Record<string, unknown> : {};
+      const dropoff = rawOrder.dropoff && typeof rawOrder.dropoff === 'object' ? rawOrder.dropoff as Record<string, unknown> : {};
+      const order = {
+        external_order_id: textOrUndefined(rawOrder.external_order_id ?? rawOrder.orderId),
+        fare_amount: numberOrUndefined(rawOrder.fare_amount ?? rawOrder.fare),
+        rider_to_pickup_m: numberOrUndefined(rawOrder.rider_to_pickup_m ?? rawOrder.riderToPickupMeters),
+        pickup_to_dropoff_m: numberOrUndefined(rawOrder.pickup_to_dropoff_m ?? rawOrder.pickupToDropoffMeters),
+        pickup_label: textOrUndefined(rawOrder.pickup_label ?? pickup.address ?? pickup.label),
+        pickup_lat: numberOrUndefined(rawOrder.pickup_lat ?? pickup.latitude ?? pickup.lat),
+        pickup_lng: numberOrUndefined(rawOrder.pickup_lng ?? pickup.longitude ?? pickup.lng ?? pickup.lon),
+        pickup_verified: rawOrder.pickup_verified === true || pickup.verified === true,
+        dropoff_label: textOrUndefined(rawOrder.dropoff_label ?? dropoff.address ?? dropoff.label),
+        dropoff_lat: numberOrUndefined(rawOrder.dropoff_lat ?? dropoff.latitude ?? dropoff.lat),
+        dropoff_lng: numberOrUndefined(rawOrder.dropoff_lng ?? dropoff.longitude ?? dropoff.lng ?? dropoff.lon),
+        dropoff_verified: rawOrder.dropoff_verified === true || dropoff.verified === true,
+        raw_scan: rawOrder
+      };
+      if (!order.fare_amount && !order.pickup_label && !order.dropoff_label) {
+        setMessage('Scanner data incomplete — order was not saved');
+        return;
+      }
+      window.save4RidersOrder?.(order);
+    };
     window.save4RidersOrder = (order) => {
       const session = cloudSessionRef.current;
       if (!session) { setMessage('Sign in required before saving a scanned order'); return; }
@@ -412,6 +444,7 @@ export default function App() {
     return () => {
       delete window.set4RidersSession;
       delete window.set4RidersLocation;
+      delete window.receive4RidersNativeOrder;
       delete window.save4RidersOrder;
       delete window.update4RidersOrderStatus;
     };
