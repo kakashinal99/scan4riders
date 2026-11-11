@@ -27,6 +27,7 @@ npm run dev
 - Place search with Photon
 - Uniform muted-purple 2D building footprints from the vector building layer
 - Building-name labels rendered from vector-tile building attributes (no separate live Overpass request)
+- Tap-to-inspect building footprints with source-backed name, category, address tags, block/reference, operator, brand and floor-count fields where present; missing fields are explicitly shown as unavailable
 - Responsive collapsed/expanded bottom information panel
 - No synthetic hotspots or invented delivery-zone polygons
 
@@ -34,7 +35,7 @@ npm run dev
 The map style is authored by 4Riders and geographic vector data is read from the project's Klang Valley PMTiles archive. The PMTiles archive is delivered by the 4Riders range proxy from the project's GitHub Release. Map glyphs currently use the OpenMapTiles font endpoint; Photon is used for place search; Valhalla public routing is used for motorcycle route estimates. Keep OpenStreetMap attribution visible and review provider usage limits/terms before production launch. The PWA cache does not yet make the PMTiles archive available offline.
 
 ## Next implementation stages
-1. Validate building layer IDs, named-building coverage and footprint geometry across Batu Tiga at street zoom.
+1. Validate the building inspector against the actual PMTiles schema and named-building coverage across Batu Tiga; add address and block directory enrichment from a verified address/building dataset.
 2. Validate motorcycle routing against local road restrictions, one-way roads and real test rides.
 3. Add spoken, maneuver-by-maneuver guidance and arrival handling.
 4. Add true offline regional tile downloads and cache management (the current cache is app-shell only).
