@@ -383,6 +383,54 @@ export default function App() {
           setSelectedBuilding(selection);
           setSelectedRoad(null);
           setActivePanel('building');
+          // Enrich the tapped footprint from OSM's full way tags. Choose only a
+          // polygon that actually contains the tap; nearby buildings are never
+          // used as a substitute for the selected footprint.
+          const pointInRing = (x: number, y: number, ring: Array<{ lon: number; lat: number }>) => {
+            let inside = false;
+            for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+              const xi = ring[i].lon, yi = ring[i].lat, xj = ring[j].lon, yj = ring[j].lat;
+              const intersects = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || Number.EPSILON) + xi);
+              if (intersects) inside = !inside;
+            }
+            return inside;
+          };
+          const enrichBuilding = async () => {
+            const queryText = `[out:json][timeout:12];way(around:15,${event.lngLat.lat.toFixed(6)},${event.lngLat.lng.toFixed(6)})["building"];out tags geom;`;
+            try {
+              const response = await fetch('https://overpass-api.de/api/interpreter', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+                body: `data=${encodeURIComponent(queryText)}`
+              });
+              if (!response.ok) throw new Error('Building address lookup unavailable');
+              const payload = await response.json() as { elements?: Array<{ id: number; tags?: Record<string, string>; geometry?: Array<{ lon: number; lat: number }> }> };
+              const exact = (payload.elements ?? []).find((item) => item.geometry && pointInRing(event.lngLat.lng, event.lngLat.lat, item.geometry));
+              if (!exact?.tags) return;
+              const tags = exact.tags;
+              const value = (...keys: string[]) => keys.map((key) => tags[key]?.trim()).find((v) => v);
+              const address = [value('addr:housenumber'), value('addr:street'), value('addr:suburb', 'addr:neighbourhood'), value('addr:city', 'addr:town'), value('addr:postcode'), value('addr:state')].filter(Boolean).join(', ');
+              const blockValue = value('addr:block', 'building:part', 'block', 'block_name');
+              const extra: Array<[string, string]> = [];
+              for (const [label, tag] of [['Operator', 'operator'], ['Brand', 'brand'], ['Floors', 'building:levels'], ['Built', 'start_date']] as const) {
+                const v = value(tag);
+                if (v) extra.push([label, v]);
+              }
+              setSelectedBuilding((current) => current?.reference === selection.reference ? {
+                ...current,
+                name: value('name', 'official_name') || current.name,
+                address: address || current.address,
+                addressLabel: address ? 'Verified OSM address tags' : current.addressLabel,
+                block: blockValue || current.block,
+                category: value('building') || current.category,
+                reference: `OSM way ${exact.id}`,
+                details: extra.length ? extra : current.details
+              } : current);
+            } catch (error) {
+              console.warn('[4Riders building tags]', error);
+            }
+          };
+          void enrichBuilding();
           // The OpenMapTiles building layer often omits full address tags.
           // Reverse geocoding gives nearby street context; it is labelled as such,
           // never presented as a verified unit/building address.
