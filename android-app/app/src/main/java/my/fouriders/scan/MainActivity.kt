@@ -67,7 +67,8 @@ class MainActivity : AppCompatActivity() {
                             lastOrderFingerprint = fingerprint
                             lastOrderEmittedAt = now
                             val encoded = JSONObject.quote(parsed.toString())
-                            web.evaluateJavascript("window.receive4RidersNativeOrder?.(JSON.parse($encoded))", null)
+                            val script = "(function(){const order=JSON.parse($encoded);if(typeof window.receive4RidersNativeOrder==='function'){window.receive4RidersNativeOrder(order);}else{window.__4rNativePendingOrders=window.__4rNativePendingOrders||[];if(window.__4rNativePendingOrders.length<5)window.__4rNativePendingOrders.push(order);}})();"
+                            web.evaluateJavascript(script, null)
                         }
                     }
                 }
