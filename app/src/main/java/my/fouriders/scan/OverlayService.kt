@@ -1,6 +1,8 @@
 package my.fouriders.scan
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.AlertDialog
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -12,11 +14,15 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.hardware.display.DisplayManager
@@ -25,6 +31,7 @@ import android.media.Image
 import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.IBinder
@@ -49,6 +56,7 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import java.util.Locale
+import java.text.SimpleDateFormat
 import java.util.concurrent.Executors
 import kotlin.math.abs
 import kotlin.math.max
@@ -59,7 +67,14 @@ class OverlayService : Service() {
         const val ACTION_STOP = "my.fouriders.scan.STOP"
         const val ACTION_HIDE = "my.fouriders.scan.HIDE"
         const val ACTION_SHOW = "my.fouriders.scan.SHOW"
+        const val ACTION_ORDER_COMPLETED = "my.fouriders.scan.ORDER_COMPLETED"
+        const val ACTION_ORDER_ACCEPTED = "my.fouriders.scan.ORDER_ACCEPTED"
+        const val ACTION_ORDER_PASSED = "my.fouriders.scan.ORDER_PASSED"
+        const val ACTION_ORDER_CHANGED = "my.fouriders.scan.ORDER_CHANGED"
+        const val ACTION_RECALCULATE = "my.fouriders.scan.RECALCULATE"
+        const val EXTRA_ORDER_ID = "order_id"
         @Volatile var hidden = false
+        @Volatile var projectionLost = false
         const val EXTRA_CODE = "code"
         const val EXTRA_DATA = "data"
         private const val CHANNEL = "scan"
@@ -86,7 +101,9 @@ class OverlayService : Service() {
 
     private class Leg(
         val label: String, var src: String, var km: Double, var unknown: Boolean,
-        val stop: Stop? = null, val from: String = "", var q: Int = 0, var how: String = ""
+        val stop: Stop? = null, val from: String = "", var q: Int = 0, var how: String = "",
+        var candidate: Geo.Hit? = null, var point: Geo.P? = null,
+        var refPoint: Geo.P? = null, var confirmedLocation: Boolean = false
     )
 
     private class Verdict(
@@ -100,8 +117,10 @@ class OverlayService : Service() {
     private val pool = Executors.newSingleThreadExecutor()
     private val recognizer by lazy { TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS) }
 
-    private var pill: TextView? = null
+    private var pill: ScannerPill? = null
+    private var pillLayout: WindowManager.LayoutParams? = null
     private var controls: View? = null
+    private var controlsLayout: WindowManager.LayoutParams? = null
     private var card: View? = null
     private var raw: View? = null
     private var editPanel: View? = null
@@ -110,17 +129,26 @@ class OverlayService : Service() {
     private var display: VirtualDisplay? = null
     private var held: Image? = null
     private var frames = 0
+    private var tracker: LocationManager? = null
+    private var trackListener: LocationListener? = null
+    private var trackLast: Location? = null
+    private var trackOrderId = 0L
 
     private var state = St.IDLE
     private var legs: List<Leg> = emptyList()
+    private var routeOrigin: Geo.P? = null
     private var uncertain = false
-    private var useBonus = false
     private var tookWhat: String? = null
     private var showMore = false
     private var lastRaw = ""
     private var armed = false
     private var moved = 0
     private var autoCount = 0
+    private var emptyReadRetries = 0
+    private var captureRetries = 0
+    private var hasResult = false
+    private var cardMinimized = false
+    private var restoreCardAfterControls = false
     private val settle = Runnable { if (state == St.NEED_MORE && autoCount < 6) { autoCount++; capture() } }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -136,6 +164,51 @@ class OverlayService : Service() {
             handler.post {
                 if (hide) closeCard()
                 pill?.visibility = if (hide) View.GONE else View.VISIBLE
+            }
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ORDER_COMPLETED) {
+            val completedId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
+            handler.post {
+                val activeId = prefs.getLong("curId", 0L)
+                if (completedId != 0L && completedId == activeId && hasResult) {
+                    stopTracking()
+                    clearScan("Trip completed from Dashboard; scanner cleared")
+                }
+            }
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ORDER_PASSED) {
+            val passedId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
+            handler.post {
+                if (passedId != 0L && passedId == prefs.getLong("curId", 0L)) clearScan("Passed, saved in History")
+            }
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ORDER_ACCEPTED) {
+            val acceptedId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
+            handler.post {
+                if (acceptedId != 0L) {
+                    startTracking(acceptedId)
+                    if (acceptedId == prefs.getLong("curId", 0L) && hasResult) {
+                        tookWhat = "Accepted"
+                        if (card != null) refresh() else setState(St.RESULT, "ACCEPTED", GREEN)
+                    }
+                }
+            }
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_ORDER_CHANGED) {
+            val changedId = intent.getLongExtra(EXTRA_ORDER_ID, 0L)
+            handler.post { syncCurrentOrderFromStore(changedId) }
+            return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RECALCULATE) {
+            handler.post {
+                if (hasResult) {
+                    saveRec(null)
+                    if (card != null) refresh() else setState(St.RESULT, "${verdict().word} ${verdict().rpk?.let { "${f2(it)}/km" }.orEmpty()}", verdict().color)
+                }
             }
             return START_NOT_STICKY
         }
@@ -181,14 +254,22 @@ class OverlayService : Service() {
     private fun setup(code: Int, data: Intent) {
         wm = getSystemService(WindowManager::class.java)
         prefs = getSharedPreferences("4riders", Context.MODE_PRIVATE)
-        useBonus = prefs.getBoolean("bonus", false)
         val mpm = getSystemService(MediaProjectionManager::class.java)
         val p = mpm.getMediaProjection(code, data)
             ?: throw IllegalStateException("Screen capture permission was not granted")
         projection = p
+        projectionLost = false
         p.registerCallback(object : MediaProjection.Callback() {
             override fun onStop() {
-                handler.post { stopSelf() }
+                handler.post {
+                    projectionLost = true
+                    projection = null
+                    display?.release(); display = null
+                    held?.close(); held = null
+                    reader?.close(); reader = null
+                    setState(St.ERROR, "RETRY IN APP", GREY)
+                    sendBroadcast(Intent(MainActivity.ACTION_ORDERS_UPDATED).setPackage(packageName))
+                }
             }
         }, handler)
 
@@ -196,6 +277,7 @@ class OverlayService : Service() {
         val w = b.width()
         val h = b.height()
         val dpi = resources.displayMetrics.densityDpi
+        reader?.close()
         val r = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 3)
         reader = r
         r.setOnImageAvailableListener({ rd ->
@@ -217,31 +299,58 @@ class OverlayService : Service() {
             DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
             r.surface, null, handler
         )
-        showPill()
+        if (pill == null) showPill()
         running = true
+        if (!hasResult) restoreAcceptedOrder()
     }
 
     // ---------- the chip ----------
 
+    /** Draws the scan animation on the bubble's own border, then holds the verdict colour. */
+    private inner class ScannerPill(context: Context) : TextView(context) {
+        private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+        var scanning = false
+        var ringColor = BLUE
+        private var angle = 0f
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            val stroke = dp(2).toFloat()
+            borderPaint.strokeWidth = stroke
+            borderPaint.strokeCap = Paint.Cap.ROUND
+            borderPaint.color = if (scanning) AMBER else ringColor
+            val inset = stroke / 2f
+            val oval = RectF(inset, inset, width - inset, height - inset)
+            if (scanning) {
+                canvas.drawArc(oval, angle, 96f, false, borderPaint)
+                angle = (angle + 8f) % 360f
+                postInvalidateOnAnimation()
+            } else {
+                canvas.drawOval(oval, borderPaint)
+            }
+        }
+    }
+
     private fun showPill() {
-        val tv = TextView(this).apply {
-            textSize = 15f
+        val tv = ScannerPill(this).apply {
+            textSize = 18f
             gravity = Gravity.CENTER
-            setTextColor(DARK)
+            setTextColor(0xFFF4F8F5.toInt())
             setTypeface(typeface, Typeface.BOLD)
-            setPadding(dp(16), dp(11), dp(16), dp(11))
             elevation = dp(6).toFloat()
         }
+        val screen = wm.currentWindowMetrics.bounds
         val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
+            dp(58),
+            dp(58),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
-            x = dp(8)
-            y = dp(260)
+            // Keep the control tucked beside the screen edge instead of over the order text.
+            x = (screen.width() - dp(66)).coerceAtLeast(dp(8))
+            y = dp(130)
         }
         var downX = 0f
         var downY = 0f
@@ -263,39 +372,58 @@ class OverlayService : Service() {
                         lp.x = startX + dx.toInt()
                         lp.y = startY + dy.toInt()
                         wm.updateViewLayout(tv, lp)
+                        positionControlsWithPill()
                     }
                 }
                 MotionEvent.ACTION_UP -> if (!dragged) {
                     if (e.eventTime - e.downTime > 700) showRaw()
-                    else if (state == St.RESULT && e.x > tv.width - dp(52)) rescan()
                     else onPillTap()
-                }
+                } else positionControlsWithPill()
             }
             true
         }
         wm.addView(tv, lp)
         pill = tv
-        setState(St.IDLE, "Scan", BLUE)
+        pillLayout = lp
+        setState(St.IDLE, "4", BLUE)
     }
 
     private fun setState(s: St, text: String, color: Int) {
         state = s
-        val sb = android.text.SpannableStringBuilder("● ")
-        sb.setSpan(android.text.style.ForegroundColorSpan(color), 0, 1, 0)
-        sb.setSpan(android.text.style.RelativeSizeSpan(1.35f), 0, 1, 0)
-        sb.append(text)
-        pill?.text = sb
-        pill?.setTextColor(INK)
+        val label = when {
+            s == St.IDLE -> "4"
+            s == St.READING -> "SCAN"
+            s == St.ROUTING -> "ROUTE"
+            s == St.NEED_MORE && text.contains("/") -> text.substringAfter("SCANNING · ").substringBefore(" stops") + "  ↓"
+            s == St.NEED_MORE -> "↓ SCROLL"
+            s == St.PAUSED -> "PAUSE"
+            s == St.RESULT -> text.substringBefore(" ")
+            s == St.ERROR -> "RETRY"
+            else -> "4"
+        }
+        pill?.text = label
+        pill?.textSize = if (label.length > 7) 8f else if (label.length > 5) 9f else if (label.length > 3) 10.5f else 17f
+        pill?.setTextColor(0xFFF4F8F5.toInt())
+        pill?.let {
+            it.scanning = s == St.READING || s == St.ROUTING || s == St.NEED_MORE
+            it.ringColor = if (s == St.RESULT) color else if (s == St.PAUSED) 0xFF7BBCFF.toInt() else BLUE
+            it.invalidate()
+        }
         pill?.background = GradientDrawable().apply {
-            cornerRadius = dp(28).toFloat()
-            setColor(DARK)
-            setStroke(dp(2), color)
+            shape = GradientDrawable.OVAL
+            setColor(0xFF103A2C.toInt())
+            // The custom border is drawn by ScannerPill so the loading arc travels on the bubble itself.
+            setStroke(dp(2), Color.TRANSPARENT)
         }
     }
 
     private fun showControls() {
         if (!::wm.isInitialized || pill == null) return
         closeControls()
+        if (card != null) {
+            closeCard()
+            restoreCardAfterControls = hasResult && !cardMinimized
+        }
         val menu = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(7), dp(7), dp(7), dp(7))
@@ -314,7 +442,8 @@ class OverlayService : Service() {
                 background = GradientDrawable().apply {
                     cornerRadius = dp(12).toFloat()
                     setColor(if (selected) when (title) {
-                        "Scan ON" -> 0xFF0D3028.toInt()
+                        "Scan" -> 0xFF0D3028.toInt()
+                        "Home" -> 0xFF183026.toInt()
                         "Pause" -> 0xFF14283A.toInt()
                         else -> 0xFF321B1D.toInt()
                     } else Color.TRANSPARENT)
@@ -358,17 +487,22 @@ class OverlayService : Service() {
             }, LinearLayout.LayoutParams(dp(22), dp(30)))
             menu.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
-        option("⌗", "Scan ON", "Detect order pada skrin", 0xFF25E0A7.toInt(), state != St.PAUSED && state != St.IDLE && state != St.ERROR) {
-            handler.removeCallbacks(settle)
-            autoCount = 0
-            if (state == St.PAUSED || state == St.IDLE || state == St.ERROR) setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
-            capture()
+        option("⌗", "Scan", "Scan the order on screen", 0xFF25E0A7.toInt(), false) {
+            scanOrRestore()
         }
         val divider = View(this).apply { setBackgroundColor(0xFF26383D.toInt()) }
         menu.addView(divider, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
             topMargin = dp(3); bottomMargin = dp(3); marginStart = dp(7); marginEnd = dp(7)
         })
-        option("Ⅱ", "Pause", "Berhenti sementara", 0xFF7BBCFF.toInt(), state == St.PAUSED) {
+        option("⌂", "Home", "Open the 4Riders dashboard", 0xFF79F2BD.toInt(), false) {
+            val i = Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            startActivity(i)
+        }
+        val dividerHome = View(this).apply { setBackgroundColor(0xFF26383D.toInt()) }
+        menu.addView(dividerHome, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
+            topMargin = dp(3); bottomMargin = dp(3); marginStart = dp(7); marginEnd = dp(7)
+        })
+        option("Ⅱ", "Pause", "Pause scanning temporarily", 0xFF7BBCFF.toInt(), state == St.PAUSED) {
             handler.removeCallbacks(settle)
             armed = false
             setState(St.PAUSED, "PAUSE", 0xFF7BBCFF.toInt())
@@ -377,7 +511,7 @@ class OverlayService : Service() {
         menu.addView(divider2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)).apply {
             topMargin = dp(3); bottomMargin = dp(3); marginStart = dp(7); marginEnd = dp(7)
         })
-        option("⏻", "OFF", "Matikan scanner", 0xFFFF6868.toInt(), false) { stopSelf() }
+        option("⏻", "Turn off", "Stop the floating scanner", 0xFFFF6868.toInt(), false) { stopSelf() }
 
         val screen = wm.currentWindowMetrics.bounds
         val lp = WindowManager.LayoutParams(
@@ -387,20 +521,43 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            x = 0
-            y = dp(320)
+            gravity = Gravity.TOP or Gravity.START
+            x = dp(8)
+            y = dp(130)
         }
         try {
             wm.addView(menu, lp)
             controls = menu
+            controlsLayout = lp
+            menu.post { positionControlsWithPill() }
         } catch (_: Exception) { }
     }
 
-    private fun closeControls() {
-        val v = controls ?: return
-        try { wm.removeView(v) } catch (_: Exception) { }
+    /** Keep the four-option panel anchored beside the draggable scanner bubble. */
+    private fun positionControlsWithPill() {
+        val menu = controls ?: return
+        val bubble = pillLayout ?: return
+        if (menu.width <= 0 || menu.height <= 0) return
+        val screen = wm.currentWindowMetrics.bounds
+        val lp = controlsLayout ?: (menu.layoutParams as? WindowManager.LayoutParams) ?: return
+        lp.gravity = Gravity.TOP or Gravity.START
+        lp.x = (bubble.x + dp(58) - menu.width / 2).coerceIn(dp(8), (screen.width() - menu.width - dp(8)).coerceAtLeast(dp(8)))
+        val below = bubble.y + dp(58) + dp(8)
+        lp.y = if (below + menu.height <= screen.height() - dp(8)) below
+            else (bubble.y - menu.height - dp(8)).coerceAtLeast(dp(8))
+        try {
+            wm.updateViewLayout(menu, lp)
+            controlsLayout = lp
+        } catch (_: Exception) { }
+    }
+
+    private fun closeControls(restoreCard: Boolean = false) {
+        controls?.let { try { wm.removeView(it) } catch (_: Exception) { } }
         controls = null
+        controlsLayout = null
+        val shouldRestore = restoreCard && restoreCardAfterControls && hasResult && !cardMinimized
+        restoreCardAfterControls = false
+        if (shouldRestore && state == St.RESULT) showResult()
     }
 
     /** After a Skip the order is forgotten, so the chip goes back to Scan and the next order starts clean. */
@@ -410,13 +567,18 @@ class OverlayService : Service() {
         closeCard()
         Session.reset()
         legs = emptyList()
+        hasResult = false
+        cardMinimized = false
+        restoreCardAfterControls = false
         uncertain = false
         tookWhat = null
+        prefs.edit().putLong("curId", 0L).putString("curSig", "").apply()
         showMore = false
         armed = false
         moved = 0
         autoCount = 0
-        setState(St.IDLE, "Scan", BLUE)
+        emptyReadRetries = 0
+        setState(St.IDLE, "4", BLUE)
         shortToast(msg)
     }
 
@@ -427,15 +589,38 @@ class OverlayService : Service() {
     }
 
     private fun onPillTap() {
-        when (state) {
-            St.IDLE -> {
-                if (card != null) closeCard()
-                capture()
-            }
-            St.NEED_MORE, St.PAUSED, St.ERROR -> showControls()
-            St.RESULT -> if (card == null) showCard() else closeCard()
-            else -> showControls()
+        if (controls != null) closeControls(restoreCard = true) else showControls()
+    }
+
+    private fun scanOrRestore() {
+        handler.removeCallbacks(settle)
+        autoCount = 0
+        if (state == St.ERROR) {
+            emptyReadRetries = 0
+            captureRetries = 0
         }
+        if (projectionLost) {
+            val i = Intent(this, MainActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .putExtra("resume_capture", true)
+            startActivity(i)
+            return
+        }
+        if (hasResult && legs.isNotEmpty()) {
+            val v = verdict()
+            cardMinimized = false
+            setState(St.RESULT, "${v.word} ${v.rpk?.let { "${f2(it)}/km" }.orEmpty()}", v.color)
+            showCard()
+            return
+        }
+        if (state == St.PAUSED || state == St.IDLE || state == St.ERROR) setState(St.NEED_MORE, "SCANNING · scroll", GREEN)
+        capture()
+    }
+
+    private fun minimizeResultCard() {
+        if (!hasResult || card == null) return
+        closeCard()
+        cardMinimized = true
     }
 
     // ---------- scroll watching ----------
@@ -462,31 +647,54 @@ class OverlayService : Service() {
     private fun capture() {
         handler.removeCallbacks(settle)
         armed = false
-        pill?.visibility = View.INVISIBLE // keep the chip out of the picture
+        // Keep our own chip out of the screen frame that ML Kit reads, but always restore it.
+        pill?.visibility = View.INVISIBLE
         handler.postDelayed({
-            val img: Image? = held
-            pill?.visibility = View.VISIBLE
-            if (img == null) {
-                setState(St.ERROR, "No picture · tap", GREY)
-                return@postDelayed
-            }
-            val bmp = try {
-                toBitmap(img)
-            } catch (e: Exception) {
-                setState(St.ERROR, "Capture failed · tap", GREY)
-                return@postDelayed
-            }
-            setState(St.READING, "Reading…", GREY)
-            recognizer.process(InputImage.fromBitmap(bmp, 0))
-                .addOnSuccessListener { t ->
-                    lastRaw = t.text
-                    Session.merge(Parser.parse(t), System.currentTimeMillis())
-                    evaluate()
+            try {
+                val img: Image? = held
+                if (img == null) {
+                    retryCapture("No screen frame yet")
+                    return@postDelayed
                 }
-                .addOnFailureListener {
-                    setState(St.ERROR, "Could not read · tap", GREY)
+                val bmp = try {
+                    toBitmap(img)
+                } catch (_: Exception) {
+                    retryCapture("Screen frame was unavailable")
+                    return@postDelayed
                 }
+                captureRetries = 0
+                setState(St.READING, "Reading…", GREY)
+                try {
+                    recognizer.process(InputImage.fromBitmap(bmp, 0))
+                        .addOnSuccessListener { t ->
+                            lastRaw = t.text
+                            Session.merge(Parser.parse(t), System.currentTimeMillis())
+                            if (Session.hasAny()) emptyReadRetries = 0
+                            evaluate()
+                        }
+                        .addOnFailureListener {
+                            lastRaw = "ML Kit OCR failed; tap Scan to retry."
+                            setState(St.ERROR, "OCR failed · tap", GREY)
+                        }
+                } catch (_: Exception) {
+                    lastRaw = "ML Kit could not start OCR; tap Scan to retry."
+                    setState(St.ERROR, "OCR failed · tap", GREY)
+                }
+            } finally {
+                pill?.visibility = if (hidden) View.GONE else View.VISIBLE
+            }
         }, 350)
+    }
+
+    private fun retryCapture(reason: String) {
+        lastRaw = reason
+        if (captureRetries < 2) {
+            captureRetries++
+            setState(St.READING, "Reading…", GREY)
+            handler.postDelayed({ if (state == St.READING) capture() }, 500)
+        } else {
+            setState(St.ERROR, "Capture failed · tap", GREY)
+        }
     }
 
     private fun toBitmap(img: Image): Bitmap {
@@ -501,6 +709,14 @@ class OverlayService : Service() {
 
     private fun evaluate() {
         if (!Session.hasAny()) {
+            // A transient blank/late frame is common just after switching back to Grab.
+            // Retry twice automatically before asking the rider to tap again.
+            if (emptyReadRetries < 2) {
+                emptyReadRetries++
+                setState(St.READING, "Reading…", GREY)
+                handler.postDelayed({ if (state == St.READING) capture() }, 650)
+                return
+            }
             setState(St.ERROR, "No order found · tap", GREY)
             return
         }
@@ -539,6 +755,10 @@ class OverlayService : Service() {
             for (st in stops) {
                 val key = st.name + "|" + st.address
                 var h = Session.geo[key]
+                if (h != null && !Geo.cacheMatchesReference(h, ref)) {
+                    Session.geo.remove(key)
+                    h = null
+                }
                 if (h == null) {
                     h = Geo.locate(this, st, ref)
                     if (h != null) Session.geo[key] = h
@@ -546,9 +766,11 @@ class OverlayService : Service() {
                 hits.add(h)
                 if (h != null) ref = h.p
             }
+            // Only full-address matches are trusted automatically. Broader results stay unconfirmed.
+            val trustedHits = hits.map { it?.takeIf { h -> h.level == 0 } }
             val chain = ArrayList<Geo.P?>()
             chain.add(me)
-            hits.forEach { chain.add(it?.p) }
+            trustedHits.forEach { chain.add(it?.p) }
             val out = ArrayList<Leg>()
             val all = chain.filterNotNull()
             val routed: List<Double>? = if (all.size == chain.size) Geo.routeLegs(all) else null
@@ -557,22 +779,22 @@ class OverlayService : Service() {
                 val b = chain[i + 1]
                 val from = if (i == 0) "You" else short(stops[i - 1])
                 val label = "$from to ${short(stops[i])}"
-                val hitA = if (i == 0) null else hits[i - 1]
-                val hitB = hits[i]
+                val hitA = if (i == 0) null else trustedHits[i - 1]
+                val hitB = trustedHits[i]
                 val q = maxOf(if (i == 0) 0 else (hitA?.level ?: 2), hitB?.level ?: 2)
                 val how = listOfNotNull(hitA, hitB).maxByOrNull { it.level }?.how.orEmpty()
                 if (a == null || b == null) {
                     val why = if (a == null && i == 0) "No GPS, set km" else "Address not found, set km"
-                    out.add(Leg(label, why, 0.0, true, stops[i], from, 2, "address not found"))
+                    out.add(Leg(label, why, 0.0, true, stops[i], from, 2, "Needs location check", hits[i], null, a, false))
                 } else if (routed != null) {
-                    out.add(Leg(label, if (i == 0) "GPS + map" else "Map estimate", rnd(routed[i]), false, stops[i], from, q, how))
+                    out.add(Leg(label, if (i == 0) "GPS + map" else "Map estimate", rnd(routed[i]), false, stops[i], from, q, how, hitB, b, a, true))
                 } else {
-                    val seg = Geo.routeLegs(listOf(a, b))
-                    if (seg != null) out.add(Leg(label, "Map estimate", rnd(seg[0]), false, stops[i], from, q, how))
-                    else out.add(Leg(label, "Rough estimate (no map)", rnd(Geo.rough(a, b)), false, stops[i], from, 2, "no map, straight line x 1.35"))
+                    // Do not fan out failed public OSRM requests; use a visibly rough fallback instead.
+                    out.add(Leg(label, "Rough estimate (no map)", rnd(Geo.rough(a, b)), false, stops[i], from, 2, "no map, straight line x 1.35", hitB, b, a, true))
                 }
             }
             handler.post {
+                routeOrigin = me
                 legs = out
                 record()
                 showResult()
@@ -588,7 +810,8 @@ class OverlayService : Service() {
         val rej = c.getFloat("rej", 0.9f).toDouble()
         val ok = c.getFloat("ok", 1.2f).toDouble()
         val bonus = Session.bonus
-        val fare = (Session.fare ?: 0.0) + (if (useBonus && bonus != null) bonus else 0.0)
+        val includeBonus = getSharedPreferences("4riders", Context.MODE_PRIVATE).getBoolean("bonus", true)
+        val fare = (Session.fare ?: 0.0) + (if (includeBonus && bonus != null) bonus else 0.0)
         val km = legs.sumOf { it.km }
         if (legs.any { it.unknown } || km <= 0.0) {
             return Verdict("SET KM", GREY, null, fare, km, "Some distances are missing. Set them with + and −.", false)
@@ -606,7 +829,10 @@ class OverlayService : Service() {
     private fun showResult() {
         val v = verdict()
         val label = if (v.rpk != null) "${v.word}  ${f2(v.rpk)}/km   ↻" else "${v.word}   ↻"
+        hasResult = true
+        cardMinimized = false
         setState(St.RESULT, label, v.color)
+        showCard()
     }
 
     // ---------- details card ----------
@@ -677,8 +903,6 @@ class OverlayService : Service() {
         prefs.getString("hist", "").orEmpty().split(",").mapNotNull { it.toDoubleOrNull() }
 
     private fun record() {
-        val v = verdict()
-        val rpk = v.rpk ?: return
         val sig = "${Session.fare}|" + Session.stops.values.joinToString(";") { it.name }
         val oldSig = prefs.getString("curSig", "").orEmpty()
         if (sig != oldSig) {
@@ -688,22 +912,150 @@ class OverlayService : Service() {
             val keep = h.takeLast(5).joinToString(",") { String.format(Locale.US, "%.3f", it) }
             prefs.edit().putString("hist", keep).putString("curSig", sig).putLong("curId", System.currentTimeMillis()).apply()
             tookWhat = null
+        } else if (prefs.getLong("curId", 0L) == 0L) {
+            prefs.edit().putLong("curId", System.currentTimeMillis()).apply()
         }
-        prefs.edit().putFloat("curRpk", rpk.toFloat()).apply()
+        verdict().rpk?.let { prefs.edit().putFloat("curRpk", it.toFloat()).apply() }
         saveRec(null)
     }
 
     /** Saves this order to the phone's history. decision: null keeps what was chosen, "" clears it. */
     private fun saveRec(decision: String?) {
         val v = verdict()
-        val rpk = v.rpk ?: return
-        val id = prefs.getLong("curId", 0L)
-        if (id == 0L) return
+        val id = prefs.getLong("curId", 0L).takeIf { it > 0L } ?: System.currentTimeMillis().also {
+            prefs.edit().putLong("curId", it).apply()
+        }
         val stop = Session.stops.values.firstOrNull { it.collect } ?: Session.stops.values.firstOrNull()
         val area = Store.areaOf(stop?.address.orEmpty())
-        val keep = Store.get(this, id)?.decision.orEmpty()
-        Store.upsert(this, Rec(id, v.word, rpk, v.fare, v.km, area, decision ?: keep))
+        val old = Store.get(this, id)
+        val keep = decision ?: old?.decision.orEmpty()
+        val routeStops = Session.stops.values.joinToString(";") { (if (it.collect) "P:" else "D:") + it.name.replace(";", " ") }
+        val now = System.currentTimeMillis()
+        val acceptedAt = if (keep == "A") old?.acceptedAt?.takeIf { it > 0 } ?: now else old?.acceptedAt ?: 0L
+        val completedAt = if (keep == "T") old?.completedAt?.takeIf { it > 0 } ?: now else old?.completedAt ?: 0L
+        // Keep a scanned order in History even when one or more distances still need editing.
+        val expectedKm = if (keep == "A") v.km else old?.expectedKm ?: 0.0
+        val expectedMinutes = if (keep == "A") (v.km / KM_PER_H * 60.0).coerceAtLeast(1.0) else old?.expectedMinutes ?: 0.0
+        Store.upsert(this, Rec(id, v.word, v.rpk ?: 0.0, v.fare, v.km, area, keep, routeStops,
+            legs.map { rnd(it.km) }, acceptedAt, completedAt, old?.actualKm ?: 0.0, expectedKm, expectedMinutes))
+        if (keep == "A") startTracking(id)
+        if (keep == "T") stopTracking()
         sendBroadcast(Intent(MainActivity.ACTION_ORDERS_UPDATED).setPackage(packageName))
+    }
+
+    /** Reload dashboard edits into the active scanner card without re-routing or changing its decision. */
+    private fun syncCurrentOrderFromStore(changedId: Long) {
+        val activeId = prefs.getLong("curId", 0L)
+        if (!hasResult || changedId == 0L || changedId != activeId) return
+        val record = Store.get(this, changedId) ?: return
+        if (record.legKm.size == legs.size && record.legKm.isNotEmpty()) {
+            legs.forEachIndexed { index, leg ->
+                leg.km = rnd(record.legKm[index])
+                leg.unknown = false
+                leg.q = 0
+                leg.src = "Edited from dashboard"
+            }
+        } else if (record.km > 0.0 && legs.isNotEmpty()) {
+            val oldTotal = legs.sumOf { it.km }
+            var assigned = 0.0
+            legs.forEachIndexed { index, leg ->
+                val next = if (index == legs.lastIndex) record.km - assigned
+                    else if (oldTotal > 0.0) record.km * leg.km / oldTotal else record.km / legs.size
+                leg.km = rnd(next)
+                assigned += leg.km
+                leg.unknown = false
+            }
+        }
+        Session.fare = record.fare
+        tookWhat = if (record.decision == "A") "Accepted" else tookWhat
+        if (card != null) refresh() else {
+            val v = verdict()
+            setState(St.RESULT, "${v.word} ${v.rpk?.let { "${f2(it)}/km" }.orEmpty()}", v.color)
+        }
+    }
+
+    /** Restore an accepted trip after Android or the screen-capture permission stops the service. */
+    private fun restoreAcceptedOrder() {
+        val id = prefs.getLong("curId", 0L)
+        val rec = if (id != 0L) Store.get(this, id) else null
+        if (rec == null || rec.decision != "A") return
+        val savedStops = rec.st.split(';').mapIndexedNotNull { i, raw ->
+            val colon = raw.indexOf(':')
+            if (colon < 1) null else Stop(i + 1, raw.substring(0, colon) == "P", raw.substring(colon + 1).trim(), "")
+        }
+        if (savedStops.isEmpty()) return
+        Session.reset()
+        Session.fare = rec.fare
+        savedStops.forEach { Session.stops[it.n] = it }
+        val kms = if (rec.legKm.size == savedStops.size) rec.legKm else {
+            val each = rec.km / savedStops.size
+            List(savedStops.size) { if (it == savedStops.lastIndex) rec.km - each * it else each }
+        }
+        legs = savedStops.mapIndexed { i, stop ->
+            val from = if (i == 0) "You" else short(savedStops[i - 1])
+            Leg("$from to ${short(stop)}", "Restored from saved trip", kms[i], false, stop, from)
+        }
+        tookWhat = "Accepted"
+        hasResult = true
+        cardMinimized = true
+        prefs.edit().putLong("curId", id).apply()
+        setState(St.RESULT, "ACCEPTED", GREEN)
+        startTracking(id)
+    }
+
+    /** Track real movement after Accept without changing the planned route distances or fare rate. */
+    @SuppressLint("MissingPermission")
+    private fun startTracking(id: Long) {
+        if (id == 0L || trackOrderId == id) return
+        stopTracking()
+        if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) return
+        val manager = getSystemService(LocationManager::class.java)
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                if (location.hasAccuracy() && location.accuracy > 60f) return
+                val previous = trackLast
+                if (previous == null) {
+                    trackLast = location
+                } else {
+                    val elapsed = (location.elapsedRealtimeNanos - previous.elapsedRealtimeNanos) / 1e9
+                    val metres = previous.distanceTo(location).toDouble()
+                    if (elapsed <= 0 || metres > 65.0 * elapsed + previous.accuracy + location.accuracy) return
+                    if (metres >= max(8.0, previous.accuracy.coerceAtMost(35f).toDouble() * 0.3)) {
+                        val record = Store.get(this@OverlayService, id) ?: return
+                        val actual = record.actualKm + metres / 1000.0
+                        Store.upsert(this@OverlayService, record.copy(actualKm = actual))
+                        sendBroadcast(Intent(MainActivity.ACTION_ORDERS_UPDATED).setPackage(packageName))
+                    }
+                    trackLast = location
+                }
+            }
+            override fun onProviderEnabled(provider: String) { }
+            override fun onProviderDisabled(provider: String) { }
+            @Deprecated("Deprecated by platform") override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) { }
+        }
+        try {
+            trackOrderId = id
+            trackLast = null
+            tracker = manager
+            trackListener = listener
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER)
+                .filter { try { manager.isProviderEnabled(it) } catch (_: Exception) { false } }
+            providers.forEach { provider ->
+                try { manager.requestLocationUpdates(provider, 10_000L, 8f, listener, handler.looper) } catch (_: Exception) { }
+            }
+            if (providers.isEmpty()) { stopTracking(); return }
+            Store.get(this, id)?.let { if (it.acceptedAt == 0L) Store.upsert(this, it.copy(acceptedAt = System.currentTimeMillis())) }
+        } catch (_: SecurityException) { stopTracking() }
+    }
+
+    private fun stopTracking() {
+        val l = trackListener
+        if (l != null) try { tracker?.removeUpdates(l) } catch (_: Exception) { }
+        trackListener = null
+        tracker = null
+        trackLast = null
+        trackOrderId = 0L
     }
 
     private fun flipText(v: Verdict, rej: Double, ok: Double, minFare: Double): String? {
@@ -793,235 +1145,238 @@ class OverlayService : Service() {
     private fun showCard() {
         closeCard()
         val v = verdict()
-        val c = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        val minFare = c.getFloat("min", 4f).toDouble()
-        val rej = c.getFloat("rej", 0.9f).toDouble()
-        val ok = c.getFloat("ok", 1.2f).toDouble()
         val screen = wm.currentWindowMetrics.bounds
-        val kmTxt = String.format(Locale.US, "%.1f", v.km)
-        val mins = Math.round(v.km / KM_PER_H * 60).toInt()
-        val vc = when (v.word) { "ACCEPT" -> D_MINT; "REJECT" -> D_RED; "CONSIDER" -> D_AMBER; else -> D_MUTED }
-        val vbg = when (v.word) { "ACCEPT" -> 0xFF163F2E.toInt(); "REJECT" -> 0xFF4A1D22.toInt(); "CONSIDER" -> 0xFF463719.toInt(); else -> 0xFF26332D.toInt() }
-
+        val pickups = legs.count { it.stop?.collect == true }
+        val dropoffs = legs.size - pickups
+        val accepted = tookWhat == "Accepted"
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(14), dp(14), dp(14), dp(8))
-            background = dBox(D_BG, D_LINE, 24)
+            setPadding(dp(15), dp(15), dp(15), dp(10))
+            background = dBox(D_BG, D_LINE, 23)
         }
 
-        // Compact fare header — RM/km and /km share the same baseline.
-        val header = LinearLayout(this).apply {
+        val heading = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(2), dp(2), dp(2), dp(10))
         }
-        val rateCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        rateCol.addView(dLab("BAYARAN PER KM").apply { letterSpacing = 0.08f })
-        if (v.rpk != null) {
-            val rateLine = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            rateLine.addView(tv("RM${f2(v.rpk)}", 35f, D_MINT, true).apply {
-                includeFontPadding = false
-                letterSpacing = -0.035f
-            })
-            rateLine.addView(tv(" /km", 13f, 0xFF8E9B95.toInt(), false).apply {
-                includeFontPadding = false
-                gravity = Gravity.BOTTOM
-                setPadding(0, 0, 0, dp(3))
-            })
-            rateCol.addView(rateLine, matchW())
-        } else {
-            rateCol.addView(tv(v.note, 14f, D_MUTED, true))
+        val type = if (pickups > 1 || dropoffs > 1) "GROUP ORDER" else "SINGLE ORDER"
+        heading.addView(tv("$type · $pickups PICKUP${if (pickups == 1) "" else "S"} · $dropoffs DROP-OFF${if (dropoffs == 1) "" else "S"}", 10f, D_MUTED, true).apply {
+            letterSpacing = 0.07f
+            maxLines = 2
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val verdictColor = when (v.word) { "ACCEPT" -> D_MINT; "REJECT" -> D_RED; "CONSIDER" -> D_AMBER; else -> D_MUTED }
+        val badges = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
         }
-        header.addView(rateCol, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        val fareCol = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.END
+        badges.addView(tv(if (accepted) "IN PROGRESS" else v.word, 8.5f, if (accepted) D_MINT else verdictColor, true).apply {
+            gravity = Gravity.CENTER
+            setPadding(dp(8), dp(6), dp(8), dp(6))
+            background = dBox(if (accepted) 0xFF173B2C.toInt() else 0xFF19251F.toInt(), Color.TRANSPARENT, 18)
+        })
+        if (accepted) {
+            badges.addView(tv(v.word, 8.5f, verdictColor, true).apply {
+                gravity = Gravity.CENTER
+                contentDescription = "Current verdict: ${v.word}"
+                setPadding(dp(8), dp(6), dp(8), dp(6))
+                background = dBox(0xFF19251F.toInt(), verdictColor, 18)
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(4) })
         }
-        fareCol.addView(dLab("TOTAL FARE").apply { gravity = Gravity.END })
-        fareCol.addView(tv("RM${f2(v.fare)}", 20f, D_WHITE, true).apply {
-            gravity = Gravity.END
+        heading.addView(badges, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(5) })
+        box.addView(heading, matchW())
+
+        val prices = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(10), 0, dp(9))
+        }
+        val rate = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM }
+        rate.addView(tv("RM${f2(v.rpk ?: 0.0)}", 34f, D_WHITE, true).apply {
             includeFontPadding = false
+            letterSpacing = -0.05f
         })
-        fareCol.addView(tv("${legs.count { it.label.contains("pickup", true) }} PICKUP · ${legs.count { it.label.contains("drop", true) }} DROPOFF", 10f, 0xFF8E9B95.toInt(), true).apply {
-            gravity = Gravity.END
-            letterSpacing = 0.025f
-            setPadding(0, dp(3), 0, 0)
-        })
-        header.addView(fareCol, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
-            marginStart = dp(8)
-        })
-        box.addView(header, matchW())
-        // notice: what would flip the verdict
-        fun notice(text: String, icon: String, fg: Int, bg: Int, line: Int, bold: Boolean) {
-            val r = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
-                background = dBox(bg, line, 14)
-            }
-            r.addView(tv(icon, 13f, fg, true).apply {
-                gravity = Gravity.CENTER
-                background = dBox(line, line, 8)
-            }, LinearLayout.LayoutParams(dp(24), dp(24)))
-            r.addView(tv(text, 14f, D_WHITE, bold).apply { setPadding(dp(10), 0, 0, 0) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            box.addView(r, matchW().apply { topMargin = dp(10) })
-        }
-        flipText(v, rej, ok, minFare)?.let {
-            when (v.word) {
-                "ACCEPT" -> notice(it, "✓", D_MINT, 0xFF123D2D.toInt(), 0xFF2E6B50.toInt(), true)
-                "REJECT" -> notice(it, "!", D_RED, 0xFF3A1A1D.toInt(), 0xFF6B2E33.toInt(), true)
-                else -> notice(it, "!", D_AMBER, 0xFF3B2D16.toInt(), 0xFF66512A.toInt(), true)
-            }
-        }
-        val extra = (if (v.near) "Close to the limit, check the km. " else "") +
-            (if (uncertain) "Stop count was not read, check every stop is below." else "")
-        if (extra.isNotBlank()) box.addView(tv(extra.trim(), 12.5f, D_MUTED).apply { setPadding(0, dp(6), 0, 0) })
-        if (legs.any { it.q >= 1 || it.unknown }) {
-            notice("Some places were not found exactly, so ~ distances are estimates and may be off. Tap a number to type the real km.", "!", D_AMBER, 0xFF3B2D16.toInt(), 0xFF66512A.toInt(), false)
-        }
+        rate.addView(tv(" /km", 13f, D_MUTED, true).apply { includeFontPadding = false; setPadding(0, 0, 0, dp(3)) })
+        prices.addView(rate, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        val fareLine = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.BOTTOM or Gravity.END }
+        fareLine.addView(tv("RM${f2(v.fare)}", 20f, D_WHITE, true).apply { includeFontPadding = false })
+        fareLine.addView(tv(" / fare", 11f, D_MUTED).apply { includeFontPadding = false; setPadding(dp(4), 0, 0, dp(2)) })
+        prices.addView(fareLine, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { marginStart = dp(7) })
+        box.addView(prices, matchW())
 
-        // Batch route: each leg keeps its own origin, ETA and editable distance.
-        box.addView(tv("BATCH ROUTE", 11f, 0xFF8E9B95.toInt(), true).apply {
-            letterSpacing = 0.12f
-        }, matchW().apply { topMargin = dp(4); bottomMargin = dp(4) })
-        box.addView(tv("Adjust distance with − / +, or tap the km value to enter it.", 11.5f, D_MUTED), matchW().apply { bottomMargin = dp(7) })
-        legs.forEachIndexed { i, leg ->
-            val warn = leg.q >= 1 && !leg.unknown
-            val card = LinearLayout(this).apply {
+        // Route starts at the rider, followed by each pickup/drop-off in captured order.
+        val route = object : LinearLayout(this) {
+            private val connector = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF526B45.toInt()
+                strokeWidth = dp(1).toFloat()
+            }
+            init { orientation = VERTICAL; setWillNotDraw(false) }
+            override fun dispatchDraw(canvas: Canvas) {
+                if (childCount > 1) {
+                    var previous = getChildAt(0).let { it.top + it.height / 2f }
+                    for (i in 1 until childCount) {
+                        val current = getChildAt(i).let { it.top + it.height / 2f }
+                        canvas.drawLine(dp(9).toFloat(), previous, dp(9).toFloat(), current, connector)
+                        previous = current
+                    }
+                }
+                super.dispatchDraw(canvas)
+            }
+        }
+        val originRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            minimumHeight = dp(38)
+        }
+        val originDot = View(this).apply {
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(0xFF8FA197.toInt())
+            }
+        }
+        originRow.addView(originDot, LinearLayout.LayoutParams(dp(12), dp(12)).apply { marginStart = dp(3); marginEnd = dp(11) })
+        originRow.addView(tv("Your location", 12f, D_MUTED, true).apply {
+            includeFontPadding = false
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        originRow.addView(View(this), LinearLayout.LayoutParams(dp(101), dp(1)))
+        route.addView(originRow, matchW())
+
+        legs.forEachIndexed { index, leg ->
+            val isPickup = leg.stop?.collect == true
+            val row = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(3), dp(7), dp(2), dp(7))
-                background = dBox(D_PANEL, if (warn) 0xFF66512A.toInt() else D_LINE, 12)
+                minimumHeight = dp(54)
             }
-            card.addView(tv("${i + 1}", 12f, D_MINT, true).apply {
-                gravity = Gravity.CENTER
-                background = dBox(0xFF203B30.toInt(), 0xFF355747.toInt(), 9)
-            }, LinearLayout.LayoutParams(dp(25), dp(25)))
-            val txt = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding(dp(8), 0, dp(2), 0)
-            }
-            val kind = when {
-                leg.label.contains("pickup", true) -> "PICKUP"
-                leg.label.contains("drop", true) -> "DROPOFF"
-                else -> leg.label.uppercase(Locale.US)
-            }
-            txt.addView(tv(kind, 9f, if (kind == "DROPOFF") 0xFF8E9B95.toInt() else D_MINT, true).apply {
-                letterSpacing = 0.08f
-            })
-            txt.addView(placeButton(leg))
-            val lm = Math.round(leg.km / KM_PER_H * 60).toInt().coerceAtLeast(1)
-            val fromName = leg.from.ifBlank { if (i == 0) "You" else "previous stop" }
-            val meta = "From $fromName · $lm min" +
-                (if (leg.unknown) " · not found" else if (warn) " · ${leg.how}" else "")
-            txt.addView(tv(meta, 10.5f, if (leg.unknown) D_RED else if (warn) D_AMBER else D_MUTED, warn || leg.unknown))
-            card.addView(txt, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            card.addView(dStep("−", false, { adjust(leg, -0.1) }, { adjust(leg, -1.0) }))
-            card.addView(tv((if (warn) "~" else "") + String.format(Locale.US, "%.1f", leg.km), 15f, D_WHITE, true).apply {
-                gravity = Gravity.CENTER
-                minWidth = dp(40)
-                minHeight = dp(42)
-                paintFlags = paintFlags or android.graphics.Paint.UNDERLINE_TEXT_FLAG
-                typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-                setOnClickListener { openEdit(leg) }
-            })
-            card.addView(dStep("+", true, { adjust(leg, 0.1) }, { adjust(leg, 1.0) }))
-            box.addView(card, matchW().apply { topMargin = dp(5) })
-        }
-
-        val bonus = Session.bonus
-        if (bonus != null) {
-            box.addView(CheckBox(this).apply {
-                text = "Count the + RM ${f2(bonus)}"
-                textSize = 15f
-                setTextColor(D_WHITE)
-                setTypeface(typeface, Typeface.BOLD)
-                buttonTintList = android.content.res.ColorStateList.valueOf(D_MINT)
-                minHeight = dp(48)
-                isChecked = useBonus
-                setOnCheckedChangeListener { _, on ->
-                    useBonus = on
-                    prefs.edit().putBoolean("bonus", on).apply()
-                    refresh()
+            val dot = View(this).apply {
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(if (isPickup) 0xFFA7D967.toInt() else D_AMBER)
                 }
-            })
-        }
-
-        if (showMore) {
-            val past = pastScans().takeLast(5)
-            if (v.rpk != null && past.isNotEmpty()) {
-                box.addView(dLab("Your last ${past.size} scans · beats ${past.count { v.rpk > it }} of ${past.size}"), matchW().apply { topMargin = dp(8); bottomMargin = dp(4) })
-                box.addView(Bars(this, past, v.rpk, vc), matchW())
             }
-            box.addView(tv("Road estimates from OpenStreetMap, rounded to 0.1 km. Grab's own route can differ.", 11.5f, D_MUTED).apply { setPadding(0, dp(8), 0, dp(2)) })
-            box.addView(Button(this).apply {
-                text = "Scan again"
-                isAllCaps = false
-                textSize = 15f
+            row.addView(dot, LinearLayout.LayoutParams(dp(14), dp(14)).apply { marginStart = dp(2); marginEnd = dp(9) })
+            val place = (leg.stop?.name ?: leg.label.substringAfter("to ")).trim().take(70)
+            val ordinal = if (isPickup) "Pickup ${legs.take(index + 1).count { it.stop?.collect == true }}"
+                else "Drop-off ${legs.take(index + 1).count { it.stop?.collect != true }}"
+            val locationBlock = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_VERTICAL }
+            val location = tv("$ordinal · $place", 12f, D_WHITE, false).apply {
+                maxLines = 2; includeFontPadding = false; setPadding(0, dp(3), dp(5), dp(2))
+            }
+            attachPlaceGestures(location, leg)
+            locationBlock.addView(location, matchW())
+            locationBlock.addView(tv(if (leg.confirmedLocation) "LOCATION MATCHED" else "CHECK LOCATION", 8f,
+                if (leg.confirmedLocation) D_MINT else 0xFFFFC66D.toInt(), true).apply {
+                letterSpacing = .08f; setPadding(0, 0, 0, dp(3)); contentDescription = "Confirm location for $ordinal"
+                setOnClickListener { openLocationCheck(leg) }
+            }, matchW())
+            row.addView(locationBlock, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            val address = leg.stop?.let { Parser.addressForCopy(it) }.orEmpty()
+            row.addView(TextView(this).apply {
+                text = "⧉"
+                gravity = Gravity.CENTER
+                textSize = 17f
                 setTextColor(D_MINT)
-                setTypeface(typeface, Typeface.BOLD)
-                stateListAnimator = null
-                background = null
-                setOnClickListener { rescan() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)))
+                contentDescription = "Copy $ordinal address"
+                background = dBox(0xFF142019.toInt(), 0xFF385146.toInt(), 8)
+                setOnClickListener {
+                    if (address.isBlank()) {
+                        shortToast("No clear address detected · nothing copied")
+                    } else {
+                        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        clipboard.setPrimaryClip(ClipData.newPlainText("Address", address))
+                        shortToast("Address copied")
+                    }
+                }
+            }, LinearLayout.LayoutParams(dp(28), dp(28)).apply { marginEnd = dp(5) })
+            val kmButton = tv("${String.format(Locale.US, "%.1f", leg.km)} km  ✎", 10f, D_WHITE, true).apply {
+                gravity = Gravity.CENTER
+                includeFontPadding = false
+                contentDescription = "Edit distance to $ordinal"
+                background = dBox(0xFF101A14.toInt(), 0xFF33493C.toInt(), 11)
+                setOnClickListener { openEdit(leg) }
+            }
+            row.addView(kmButton, LinearLayout.LayoutParams(dp(76), dp(36)))
+            route.addView(row, matchW())
         }
+        box.addView(route, matchW())
 
-        // Take / Skip (saved inside this app only)
-        val took = tookWhat
-        if (took != null) {
-            val lr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            lr.addView(tv("Logged as $took. Nothing was pressed in Grab.", 13.5f, D_WHITE, true), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            lr.addView(Button(this).apply {
-                text = "Undo"
-                isAllCaps = false
-                textSize = 15f
-                setTextColor(D_MINT)
-                setTypeface(typeface, Typeface.BOLD)
-                stateListAnimator = null
-                background = null
-                setOnClickListener { tookWhat = null; saveRec(""); refresh() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)))
-            box.addView(lr, matchW().apply { topMargin = dp(8) })
-        } else {
-            val fr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            fr.addView(Button(this).apply {
-                text = "Skip"
-                isAllCaps = false
-                textSize = 16f
-                setTextColor(0xFFE5F2E9.toInt())
-                setTypeface(typeface, Typeface.BOLD)
-                stateListAnimator = null
-                background = dBox(0xFF24362E.toInt(), 0xFF3B5145.toInt(), 12)
-                setOnClickListener { saveRec("S"); clearScan("Skipped, scanner cleared") }
-            }, LinearLayout.LayoutParams(0, dp(54), 1f).apply { marginEnd = dp(5) })
-            fr.addView(Button(this).apply {
-                text = "Take"
-                isAllCaps = false
-                textSize = 16f
-                setTextColor(0xFF0B2117.toInt())
-                setTypeface(typeface, Typeface.BOLD)
-                stateListAnimator = null
-                background = dBox(D_MINT, D_MINT, 12)
-                setOnClickListener { tookWhat = "Taken"; saveRec("T"); refresh() }
-            }, LinearLayout.LayoutParams(0, dp(54), 1.15f).apply { marginStart = dp(5) })
-            box.addView(fr, matchW().apply { topMargin = dp(8) })
+        val total = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(11), 0, dp(10))
+            background = null
         }
-        val links = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun link(t: String, f: () -> Unit) = Button(this).apply {
-            text = t
-            isAllCaps = false
-            textSize = 14f
+        total.addView(tv("↗ ${String.format(Locale.US, "%.1f", v.km)} km", 11f, D_MUTED, false), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        total.addView(TextView(this).apply {
+            text = "−"
+            textSize = 18f
+            gravity = Gravity.CENTER
             setTextColor(D_MINT)
             setTypeface(typeface, Typeface.BOLD)
-            stateListAnimator = null
-            background = null
-            setOnClickListener { f() }
+            contentDescription = "Minimize order card"
+            background = dBox(0xFF142019.toInt(), 0xFF385146.toInt(), 8)
+            setOnClickListener { minimizeResultCard() }
+        }, LinearLayout.LayoutParams(dp(30), dp(27)).apply {
+            marginStart = dp(6)
+            marginEnd = dp(6)
+        })
+        val mins = Math.round(v.km / KM_PER_H * 60).toInt().coerceAtLeast(1)
+        total.addView(tv("◷ $mins min est.", 11f, D_WHITE, true).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        box.addView(View(this).apply { setBackgroundColor(D_LINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
+        box.addView(total, matchW())
+        val routeNote = when {
+            legs.any { it.unknown } -> "Location unavailable · enter km · © OpenStreetMap"
+            legs.any { it.src.startsWith("Rough estimate") } -> "Rough estimate · verify in maps · © OpenStreetMap · OSRM"
+            legs.any { it.q >= 2 } -> "Postcode-area lookup · verify in maps · © OpenStreetMap · OSRM"
+            legs.any { it.q == 1 } -> "Broader address lookup · verify in maps · © OpenStreetMap · OSRM"
+            else -> "Road distance estimate · verify in maps · © OpenStreetMap · OSRM"
         }
-        links.addView(link(if (showMore) "Less" else "More: last scans, notes") { showMore = !showMore; showCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)))
-        links.addView(link("Minimise ↑") { closeCard() }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(46)).apply { marginStart = dp(16) })
-        box.addView(links, matchW())
+        box.addView(tv(routeNote, 9f, D_MUTED).apply {
+            setPadding(0, 0, 0, dp(4))
+            maxLines = 2
+            contentDescription = routeNote
+        }, matchW())
+
+        val acceptedAt = Store.get(this, prefs.getLong("curId", 0L))?.acceptedAt ?: 0L
+        box.addView(tv(projectionText(v, acceptedAt), 9.5f, D_MUTED).apply {
+            setPadding(0, dp(5), 0, dp(3))
+            maxLines = 3
+        }, matchW())
+
+        if (!accepted) {
+            val actions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            actions.addView(Button(this).apply {
+                text = "PASS"
+                isAllCaps = false
+                textSize = 13f
+                setTextColor(D_WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = dBox(0xFF152019.toInt(), 0xFF33483A.toInt(), 13)
+                setOnClickListener { saveRec("S"); clearScan("Passed, saved in History") }
+            }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = dp(5) })
+            actions.addView(Button(this).apply {
+                text = "ACCEPT"
+                isAllCaps = false
+                textSize = 13f
+                setTextColor(D_WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = dBox(0xFF246D4F.toInt(), 0xFF246D4F.toInt(), 13)
+                setOnClickListener { tookWhat = "Accepted"; saveRec("A"); refresh() }
+            }, LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginStart = dp(5) })
+            box.addView(actions, matchW().apply { topMargin = dp(5) })
+        } else {
+            box.addView(Button(this).apply {
+                text = "MARK AS COMPLETED"
+                isAllCaps = false
+                textSize = 13f
+                setTextColor(D_WHITE)
+                setTypeface(typeface, Typeface.BOLD)
+                stateListAnimator = null
+                background = dBox(0xFF246D4F.toInt(), 0xFF246D4F.toInt(), 13)
+                setOnClickListener { saveRec("T"); clearScan("Trip completed, scanner cleared") }
+            }, matchW().apply { topMargin = dp(5) }.let { it.height = dp(50); it })
+        }
 
         val lp = WindowManager.LayoutParams(
             screen.width() - dp(16),
@@ -1029,11 +1384,8 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
             PixelFormat.TRANSLUCENT
-        ).apply {
-            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
-            y = dp(8)
-        }
-        val outer = CappedScroll(this, (screen.height() * 0.9f).toInt())
+        ).apply { gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL; y = dp(8) }
+        val outer = CappedScroll(this, (screen.height() * 0.88f).toInt())
         outer.addView(box)
         wm.addView(outer, lp)
         card = outer
@@ -1041,33 +1393,151 @@ class OverlayService : Service() {
 
     private fun rnd(x: Double): Double = Math.round(x * 10.0) / 10.0
 
+    private fun projectionText(v: Verdict, acceptedAt: Long): String {
+        val now = System.currentTimeMillis()
+        val plannedMins = Math.round(v.km / KM_PER_H * 60).toInt().coerceAtLeast(1)
+        val elapsedMins = if (acceptedAt > 0L) ((now - acceptedAt).coerceAtLeast(0L) / 60_000L).toInt() else 0
+        val remainingMins = (plannedMins - elapsedMins).coerceAtLeast(1)
+        val finishAt = now + remainingMins * 60_000L
+        val clock = SimpleDateFormat("h:mm a", Locale.getDefault())
+        val dayStart = java.util.Calendar.getInstance().apply {
+            set(java.util.Calendar.HOUR_OF_DAY, 0); set(java.util.Calendar.MINUTE, 0)
+            set(java.util.Calendar.SECOND, 0); set(java.util.Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        val completed = Store.all(this).filter { it.decision == "T" && it.id >= dayStart }
+        val earned = completed.sumOf { it.fare }
+        val tripMs = completed.sumOf { order ->
+            if (order.acceptedAt > 0L && order.completedAt > order.acceptedAt) {
+                minOf(now, order.completedAt) - maxOf(dayStart, order.acceptedAt)
+            } else 0L
+        }.coerceAtLeast(0L)
+        val pace = if (tripMs > 0L) earned / (tripMs / 3_600_000.0) else 0.0
+        val goal = getSharedPreferences("cfg", Context.MODE_PRIVATE).getFloat("goal", 200f).toDouble()
+        val projected = earned + v.fare
+        val targetAt = when {
+            projected >= goal -> finishAt
+            pace > 0.0 -> finishAt + ((goal - projected) / pace * 3_600_000.0).toLong()
+            else -> 0L
+        }
+        val target = when {
+            projected >= goal -> " · Daily goal reached by ${clock.format(java.util.Date(finishAt))} if completed"
+            targetAt > 0L -> " · Goal about ${clock.format(java.util.Date(targetAt))} at RM${String.format(Locale.US, "%.2f", pace)}/hr pace"
+            acceptedAt > 0L -> " · Goal-time estimate after another completed order"
+            else -> " · If accepted, goal-time estimate after your first completed order"
+        }
+        return "Est. complete ${clock.format(java.util.Date(finishAt))} · $remainingMins min left$target"
+    }
+
     private fun adjust(leg: Leg, d: Double) {
         leg.km = rnd(max(0.0, leg.km + d))
         leg.unknown = false
         leg.q = 0
         leg.src = "Edited by you"
+        saveRec(null)
         refresh()
     }
 
     private fun shortToast(s: String) = Toast.makeText(this, s, Toast.LENGTH_SHORT).show()
+
+    /** Let the rider choose the real map result when OCR/geocoding was not an exact match. */
+    private fun openLocationCheck(leg: Leg) {
+        val stop = leg.stop ?: return
+        val exactAddress = Parser.addressForCopy(stop).orEmpty()
+        val query = if (exactAddress.isBlank()) stop.name else exactAddress
+        val progress = AlertDialog.Builder(this)
+            .setTitle("Confirm stop location")
+            .setMessage("Scanned location:\n$query\n\nFinding map matches…")
+            .setNegativeButton("CANCEL", null)
+            .create()
+        progress.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+        try { progress.show() } catch (_: Exception) { return }
+        pool.execute {
+            val suggestions = Geo.suggestions(this, stop, leg.refPoint ?: routeOrigin)
+            handler.post {
+                progress.dismiss()
+                if (suggestions.isEmpty()) {
+                    AlertDialog.Builder(this)
+                        .setTitle("No map matches")
+                        .setMessage("No result was returned for the scanned text. Nothing was guessed. Edit this leg's km or check the address in Maps.")
+                        .setPositiveButton("EDIT KM") { _, _ -> openEdit(leg) }
+                        .setNegativeButton("CLOSE", null)
+                        .create().also { it.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY); it.show() }
+                    return@post
+                }
+                val labels = suggestions.mapIndexed { i, hit ->
+                    val distance = leg.refPoint?.let { " · ${String.format(Locale.US, "%.1f", Geo.straight(it, hit.p))} km away" }.orEmpty()
+                    "${i + 1}. ${hit.label.ifBlank { "Map result" }}$distance\n   ${hit.how}"
+                }.toTypedArray()
+                var selected = 0
+                val dialog = AlertDialog.Builder(this)
+                    .setTitle("Choose the correct location")
+                    .setSingleChoiceItems(labels, 0) { _, which -> selected = which }
+                    .setPositiveButton("CONFIRM LOCATION") { _, _ -> confirmLocation(leg, suggestions[selected]) }
+                    .setNeutralButton("VIEW IN MAPS") { _, _ ->
+                        val hit = suggestions[selected]
+                        val map = Intent(Intent.ACTION_VIEW, Uri.parse("geo:${hit.p.lat},${hit.p.lon}?q=${hit.p.lat},${hit.p.lon}(${Uri.encode(stop.name)})"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        try { startActivity(map) } catch (_: Exception) { shortToast("No map app available") }
+                    }
+                    .setNegativeButton("CANCEL", null)
+                    .create()
+                dialog.window?.setType(WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY)
+                dialog.show()
+            }
+        }
+    }
+
+    /** Save a rider-confirmed point and recalculate only adjacent, non-manual route legs. */
+    private fun confirmLocation(leg: Leg, hit: Geo.Hit) {
+        val index = legs.indexOf(leg)
+        if (index < 0) return
+        val prev = if (index == 0) routeOrigin else legs.getOrNull(index - 1)?.point
+        val next = legs.getOrNull(index + 1)?.point
+        leg.candidate = hit
+        leg.point = hit.p
+        leg.confirmedLocation = true
+        leg.q = 0
+        leg.how = "Confirmed by rider"
+        val nextLeg = legs.getOrNull(index + 1)
+        val recalcNext = nextLeg != null && nextLeg.src != "Edited by you"
+        pool.execute {
+            val points = buildList { prev?.let(::add); add(hit.p); if (recalcNext) next?.let(::add) }
+            val distances = if (points.size >= 2) Geo.routeLegs(points) else null
+            handler.post {
+                if (distances != null) {
+                    var di = 0
+                    if (prev != null && leg.src != "Edited by you") { leg.km = rnd(distances[di++]); leg.unknown = false; leg.src = "Map estimate" }
+                    else if (prev == null) { leg.unknown = true; leg.km = 0.0 }
+                    if (recalcNext && next != null && nextLeg != null && di < distances.size) {
+                        nextLeg.km = rnd(distances[di]); nextLeg.unknown = false; nextLeg.q = 0; nextLeg.src = "Map estimate"; nextLeg.refPoint = hit.p
+                    }
+                } else if (prev != null && leg.src != "Edited by you") {
+                    leg.km = rnd(Geo.rough(prev, hit.p)); leg.unknown = false; leg.src = "Rough estimate (no map)"
+                }
+                leg.q = 0
+                saveRec(null)
+                refresh()
+                shortToast("Location confirmed")
+            }
+        }
+    }
 
     private fun placeButton(leg: Leg): TextView {
         val name = (leg.stop?.name ?: "Place").substringBefore(" - ").take(40)
         val t = tv(name, 14f, 0xFFF4F8F5.toInt(), true).apply {
             setPadding(0, dp(6), dp(4), dp(4))
         }
-        val addr = leg.stop?.address.orEmpty()
+        val addr = leg.stop?.let { Parser.addressForCopy(it) }.orEmpty()
         val gd = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (addr.isBlank()) {
-                    shortToast("No address to copy")
+                    shortToast("No clear address detected · nothing saved")
                 } else {
-                    getSystemService(ClipboardManager::class.java)
-                        .setPrimaryClip(ClipData.newPlainText("address", addr))
+                    AddressBook.save(this@OverlayService, name, addr)
                     t.setTextColor(0xFF79F2BD.toInt())
                     handler.postDelayed({ t.setTextColor(0xFFF4F8F5.toInt()) }, 700)
-                    shortToast("Address copied")
+                    shortToast("Address saved · Settings → Saved places")
                 }
                 return true
             }
@@ -1076,36 +1546,50 @@ class OverlayService : Service() {
         return t
     }
 
-    /** Small window at the top with a keyboard, so you can type the real km. */
+    /** Open a compact distance editor; the order card stays underneath it. */
     private fun openEdit(leg: Leg) {
         closeEdit()
         val screen = wm.currentWindowMetrics.bounds
+        var draftKm = leg.km
         val et = EditText(this).apply {
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             setText(String.format(Locale.US, "%.1f", leg.km))
             setSelectAllOnFocus(true)
-            textSize = 30f
-            setTextColor(DARK)
+            textSize = 25f
+            setTextColor(D_WHITE)
             typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
             gravity = Gravity.CENTER
             imeOptions = EditorInfo.IME_ACTION_DONE
             setPadding(dp(12), dp(8), dp(12), dp(8))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(14).toFloat()
-                setColor(0xFFF1F4F9.toInt())
-                setStroke(dp(2), BLUE)
+            background = dBox(0xFF0B130E.toInt(), 0xFF354B3D.toInt(), 12)
+        }
+        fun refreshDraft() { et.setText(String.format(Locale.US, "%.1f", draftKm)) }
+        fun stepButton(label: String, action: () -> Unit) = TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            textSize = 23f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(0xFFC8F36A.toInt())
+            background = dBox(0xFF1B2B20.toInt(), Color.TRANSPARENT, 11)
+            setOnClickListener {
+                val typed = et.text.toString().replace(',', '.').toDoubleOrNull()
+                draftKm = max(0.0, (typed ?: draftKm) + if (label == "+") 0.1 else -0.1)
+                draftKm = rnd(draftKm)
+                refreshDraft()
+                action()
             }
         }
         fun save() {
             val v = et.text.toString().replace(',', '.').toDoubleOrNull()
             if (v == null || v < 0 || v > 999) {
-                shortToast("Type a number like 9.1")
+                shortToast("Enter a distance between 0 and 999 km")
                 return
             }
             leg.km = rnd(v)
             leg.unknown = false
             leg.q = 0
             leg.src = "Edited by you"
+            saveRec(null)
             closeEdit()
             refresh()
         }
@@ -1114,41 +1598,47 @@ class OverlayService : Service() {
         }
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(16), dp(16), dp(14))
-            background = GradientDrawable().apply {
-                cornerRadius = dp(24).toFloat()
-                setColor(Color.WHITE)
-                setStroke(dp(1), 0xFFD6DBE6.toInt())
-            }
+            setPadding(dp(18), dp(14), dp(18), dp(18))
+            background = dBox(0xFF101A14.toInt(), 0xFF34473A.toInt(), 22)
         }
-        box.addView(tv("Distance in km", 13f, SOFT, true))
-        box.addView(tv("${leg.from} to ${short(leg.stop ?: Stop(0, false, "", ""))}", 15f, DARK, true))
-        box.addView(et, LinearLayout.LayoutParams(
-            ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(10) })
+        box.addView(View(this).apply { background = dBox(0xFF405148.toInt(), Color.TRANSPARENT, 4) },
+            LinearLayout.LayoutParams(dp(34), dp(4)).apply { gravity = Gravity.CENTER; bottomMargin = dp(13) })
+        box.addView(tv("EDIT ROUTE DISTANCE", 9f, D_MUTED, true).apply { letterSpacing = 0.12f })
+        box.addView(tv("${leg.from} to ${short(leg.stop ?: Stop(0, false, "", ""))}", 14f, D_WHITE, true).apply { setPadding(0, dp(3), 0, 0) })
+        val stepper = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            background = dBox(0xFF0B130E.toInt(), 0xFF354B3D.toInt(), 14)
+        }
+        stepper.addView(stepButton("−") {}, LinearLayout.LayoutParams(dp(44), dp(42)))
+        stepper.addView(et, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(6); marginEnd = dp(6) })
+        stepper.addView(stepButton("+") {}, LinearLayout.LayoutParams(dp(44), dp(42)))
+        box.addView(stepper, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(13) })
+        box.addView(tv("Adjust only this leg · total and verdict recalculate when saved", 9f, D_MUTED).apply { setPadding(0, dp(8), 0, 0) })
         val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         row.addView(Button(this).apply {
-            text = "Cancel"
+            text = "CANCEL"
             isAllCaps = false
-            textSize = 16f
-            setTextColor(DARK)
+            textSize = 10f
+            setTextColor(D_WHITE)
             stateListAnimator = null
-            background = shape(BTN, 16)
+            background = dBox(0xFF152019.toInt(), 0xFF34483A.toInt(), 11)
             setOnClickListener { closeEdit() }
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginEnd = dp(5) })
+        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(5) })
         row.addView(Button(this).apply {
-            text = "Save"
+            text = "DONE"
             isAllCaps = false
-            textSize = 16f
-            setTextColor(Color.WHITE)
+            textSize = 10f
+            setTextColor(D_WHITE)
             setTypeface(typeface, Typeface.BOLD)
             stateListAnimator = null
-            background = shape(DARK, 16)
+            background = dBox(0xFF246D4F.toInt(), Color.TRANSPARENT, 11)
             setOnClickListener { save() }
-        }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })
+        }, LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginStart = dp(5) })
         box.addView(row, LinearLayout.LayoutParams(
             ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT
-        ).apply { topMargin = dp(12) })
+        ).apply { topMargin = dp(14) })
         val lp = WindowManager.LayoutParams(
             screen.width() - dp(40),
             WindowManager.LayoutParams.WRAP_CONTENT,
@@ -1156,17 +1646,13 @@ class OverlayService : Service() {
             WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         ).apply {
-            gravity = Gravity.TOP or Gravity.CENTER_HORIZONTAL
-            y = dp(90)
-            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE or
-                WindowManager.LayoutParams.SOFT_INPUT_ADJUST_PAN
+            gravity = Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL
+            y = dp(12)
+            softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
         }
         wm.addView(box, lp)
         editPanel = box
-        et.post {
-            et.requestFocus()
-            getSystemService(InputMethodManager::class.java).showSoftInput(et, InputMethodManager.SHOW_IMPLICIT)
-        }
+        et.clearFocus()
     }
 
     private fun closeEdit() {
@@ -1174,8 +1660,27 @@ class OverlayService : Service() {
         editPanel = null
     }
 
+    private fun attachPlaceGestures(view: TextView, leg: Leg) {
+        val stop = leg.stop ?: return
+        val address = Parser.addressForCopy(stop).orEmpty()
+        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent) = true
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (address.isBlank()) shortToast("No clear address detected · nothing saved")
+                else {
+                    AddressBook.save(this@OverlayService, stop.name, address)
+                    view.setTextColor(D_MINT)
+                    handler.postDelayed({ if (view.isAttachedToWindow) view.setTextColor(D_WHITE) }, 700)
+                    shortToast("Address saved · Settings → Saved places")
+                }
+                return true
+            }
+        })
+        view.setOnTouchListener { _, event -> detector.onTouchEvent(event) }
+        view.contentDescription = "${stop.name}. Double-tap to save address; use the adjacent copy button to copy it."
+    }
+
     private fun refresh() {
-        showCard()
         showResult()
     }
 
@@ -1233,12 +1738,15 @@ class OverlayService : Service() {
     override fun onDestroy() {
         running = false
         hidden = false
+        projectionLost = false
+        stopTracking()
         handler.removeCallbacksAndMessages(null)
         closeControls()
         closeCard()
         closeRaw()
         pill?.let { try { wm.removeView(it) } catch (_: Exception) {} }
         pill = null
+        pillLayout = null
         display?.release()
         held?.close()
         held = null
@@ -1247,6 +1755,7 @@ class OverlayService : Service() {
         recognizer.close()
         pool.shutdownNow()
         Session.reset()
+        sendBroadcast(Intent(MainActivity.ACTION_ORDERS_UPDATED).setPackage(packageName))
         super.onDestroy()
     }
 

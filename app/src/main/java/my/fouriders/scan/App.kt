@@ -8,6 +8,7 @@ import java.io.StringWriter
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        CloudSync.initialize(this)
         val old = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {

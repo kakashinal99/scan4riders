@@ -43,6 +43,7 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         internal const val ACTION_ORDERS_UPDATED = "my.fouriders.scan.ORDERS_UPDATED"
+        internal const val ACTION_SESSION_UPDATED = "my.fouriders.scan.SESSION_UPDATED"
         private val BG = Color.parseColor("#0C1110")
         private val INK = Color.parseColor("#F4F7F5")
         private val MUT = Color.parseColor("#8E9B95")
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
         else registerReceiver(orderUpdateReceiver, filter)
         val crash = getSharedPreferences("crash", Context.MODE_PRIVATE).getString("trace", null)
         if (crash != null) showCrash(crash) else buildUi()
+        if (intent.getBooleanExtra("resume_capture", false)) window.decorView.post { startFlow() }
     }
 
 
@@ -150,6 +152,12 @@ class MainActivity : ComponentActivity() {
         if (::prototype.isInitialized) prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.getBooleanExtra("resume_capture", false)) window.decorView.post { startFlow() }
+    }
+
     override fun onDestroy() {
         try { unregisterReceiver(orderUpdateReceiver) } catch (_: IllegalArgumentException) { }
         super.onDestroy()
@@ -162,20 +170,48 @@ class MainActivity : ComponentActivity() {
                 out.put(org.json.JSONObject().apply {
                     put("id", r.id); put("w", r.word); put("fare", r.fare); put("km", r.km)
                     put("d", r.decision); put("area", r.area)
-                    put("st", "P:Pickup details not saved;D:${r.area}")
+                    put("st", r.st.ifBlank { "P:Pickup details not saved;D:${r.area}" })
+                    put("legKm10", org.json.JSONArray().also { a -> r.legKm.forEach { a.put(Math.round(it * 10).toInt()) } })
+                    put("acceptedAt", r.acceptedAt); put("completedAt", r.completedAt); put("actualKm", r.actualKm)
+                    put("expectedKm", r.expectedKm); put("expectedMinutes", r.expectedMinutes)
                     put("native", true)
                 })
             }
             return out.toString()
         }
 
+        @JavascriptInterface fun earningAdjustmentsJson(): String = EarningAdjustments.json(this@MainActivity)
+
+        @JavascriptInterface fun adjustEarning(at: Long, amount: Double) {
+            EarningAdjustments.add(this@MainActivity, at, amount)
+            sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName))
+        }
+
         @JavascriptInterface fun scannerJson(): String = org.json.JSONObject().apply {
-            put("running", OverlayService.running); put("hidden", OverlayService.hidden)
+            put("running", OverlayService.running); put("hidden", OverlayService.hidden); put("projectionLost", OverlayService.projectionLost)
         }.toString()
+
+        @JavascriptInterface fun sessionJson(): String = WorkClock.json(this@MainActivity)
+
+        @JavascriptInterface fun setSessionOnline(online: Boolean) {
+            WorkClock.setOnline(this@MainActivity, online)
+            sendBroadcast(Intent(ACTION_SESSION_UPDATED).setPackage(packageName))
+        }
+
+        @JavascriptInterface fun saveAddress(name: String, address: String) = AddressBook.save(this@MainActivity, name, address)
+
+        @JavascriptInterface fun savedAddressesJson(): String = AddressBook.all(this@MainActivity).toString()
+
+        @JavascriptInterface fun deleteSavedAddress(index: Int) = AddressBook.delete(this@MainActivity, index)
+
+        @JavascriptInterface fun setBonusIncluded(include: Boolean) {
+            getSharedPreferences("4riders", Context.MODE_PRIVATE).edit().putBoolean("bonus", include).apply()
+            if (OverlayService.running) startService(Intent(this@MainActivity, OverlayService::class.java).setAction(OverlayService.ACTION_RECALCULATE))
+        }
 
         @JavascriptInterface fun toggleScanner() {
             runOnUiThread {
-                if (!OverlayService.running) startFlow()
+                if (!OverlayService.running || OverlayService.projectionLost) startFlow()
                 else {
                     val hide = !OverlayService.hidden
                     startService(Intent(this@MainActivity, OverlayService::class.java)
@@ -192,26 +228,80 @@ class MainActivity : ComponentActivity() {
 
         @JavascriptInterface fun setDecision(id: Long, decision: String) {
             val r = Store.get(this@MainActivity, id) ?: return
-            val d = when (decision) { "S" -> "S"; "T", "A" -> "T"; else -> "" }
-            Store.upsert(this@MainActivity, r.copy(decision = d))
+            val d = when (decision) { "S" -> "S"; "A" -> "A"; "T" -> "T"; else -> "" }
+            val now = System.currentTimeMillis()
+            val updated = r.copy(decision = d,
+                acceptedAt = if (d == "A") r.acceptedAt.takeIf { it > 0L } ?: now else r.acceptedAt,
+                completedAt = if (d == "T") r.completedAt.takeIf { it > 0L } ?: now else r.completedAt,
+                expectedKm = if (d == "A") r.km else r.expectedKm,
+                expectedMinutes = if (d == "A") (r.km / 24.0 * 60.0).coerceAtLeast(1.0) else r.expectedMinutes)
+            Store.upsert(this@MainActivity, updated)
+            notifyScannerOrderChanged(id)
+            if (d == "A" && OverlayService.running) {
+                startService(Intent(this@MainActivity, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_ORDER_ACCEPTED)
+                    .putExtra(OverlayService.EXTRA_ORDER_ID, id))
+            }
+            if ((d == "T" || d == "S") && OverlayService.running) {
+                startService(Intent(this@MainActivity, OverlayService::class.java)
+                    .setAction(if (d == "T") OverlayService.ACTION_ORDER_COMPLETED else OverlayService.ACTION_ORDER_PASSED)
+                    .putExtra(OverlayService.EXTRA_ORDER_ID, id))
+            }
+            sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName))
         }
 
-        @JavascriptInterface fun deleteOrder(id: Long) { Store.delete(this@MainActivity, id) }
+        @JavascriptInterface fun deleteOrder(id: Long) { Store.delete(this@MainActivity, id); sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName)) }
 
         @JavascriptInterface fun saveOrder(oldId: Long, newId: Long, area: String, fare: Double, km: Double, decision: String) {
             val rpk = fare / km
             val rec = Store.get(this@MainActivity, oldId)
             if (rec != null && oldId != newId) Store.delete(this@MainActivity, oldId)
             val word = when { fare < 4.0 || rpk < .9 -> "REJECT"; rpk < 1.2 -> "CONSIDER"; else -> "ACCEPT" }
-            val d = when (decision) { "S" -> "S"; "T", "A" -> "T"; else -> "" }
-            Store.upsert(this@MainActivity, Rec(newId, word, rpk, fare, km, area, d))
+            val d = when (decision) { "S" -> "S"; "A" -> "A"; "T" -> "T"; else -> "" }
+            val acceptedAt = if (d == "A") rec?.acceptedAt?.takeIf { it > 0L } ?: System.currentTimeMillis() else rec?.acceptedAt ?: 0L
+            val completedAt = if (d == "T") rec?.completedAt?.takeIf { it > 0L } ?: System.currentTimeMillis() else rec?.completedAt ?: 0L
+            val expectedKm = if (d == "A") km else rec?.expectedKm ?: 0.0
+            val expectedMinutes = if (d == "A") (km / 24.0 * 60.0).coerceAtLeast(1.0) else rec?.expectedMinutes ?: 0.0
+            Store.upsert(this@MainActivity, Rec(newId, word, rpk, fare, km, area, d, rec?.st.orEmpty(), rec?.legKm.orEmpty(), acceptedAt, completedAt, rec?.actualKm ?: 0.0, expectedKm, expectedMinutes))
+            if (d == "T" && OverlayService.running) {
+                startService(Intent(this@MainActivity, OverlayService::class.java)
+                    .setAction(OverlayService.ACTION_ORDER_COMPLETED)
+                    .putExtra(OverlayService.EXTRA_ORDER_ID, newId))
+            }
+            notifyScannerOrderChanged(newId)
+            sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName))
         }
 
         @JavascriptInterface fun setDistance(id: Long, km: Double) {
             val r = Store.get(this@MainActivity, id) ?: return
             if (km <= 0.0) return
             val rate = r.fare / km
-            Store.upsert(this@MainActivity, r.copy(km = km, rpk = rate))
+            Store.upsert(this@MainActivity, r.copy(km = km, rpk = rate,
+                expectedKm = if (r.decision == "A") km else r.expectedKm,
+                expectedMinutes = if (r.decision == "A") (km / 24.0 * 60.0).coerceAtLeast(1.0) else r.expectedMinutes))
+            notifyScannerOrderChanged(id)
+            sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName))
+        }
+
+        @JavascriptInterface fun setLegDistances(id: Long, json: String) {
+            val r = Store.get(this@MainActivity, id) ?: return
+            val arr = try { org.json.JSONArray(json) } catch (_: Exception) { return }
+            val legs = (0 until arr.length()).mapNotNull { arr.optDouble(it).takeIf { n -> n.isFinite() && n >= 0 } }
+            if (legs.isEmpty()) return
+            val km = legs.sum()
+            if (km <= 0.0) return
+            Store.upsert(this@MainActivity, r.copy(km = km, rpk = r.fare / km, legKm = legs,
+                expectedKm = if (r.decision == "A") km else r.expectedKm,
+                expectedMinutes = if (r.decision == "A") (km / 24.0 * 60.0).coerceAtLeast(1.0) else r.expectedMinutes))
+            notifyScannerOrderChanged(id)
+            sendBroadcast(Intent(ACTION_ORDERS_UPDATED).setPackage(packageName))
+        }
+
+        private fun notifyScannerOrderChanged(id: Long) {
+            if (!OverlayService.running) return
+            startService(Intent(this@MainActivity, OverlayService::class.java)
+                .setAction(OverlayService.ACTION_ORDER_CHANGED)
+                .putExtra(OverlayService.EXTRA_ORDER_ID, id))
         }
     }
 
@@ -229,6 +319,19 @@ class MainActivity : ComponentActivity() {
     private fun agg(rows: List<Rec>): Agg {
         val t = rows.filter { it.decision == "T" }
         return Agg(t.size, t.sumOf { it.fare }, t.sumOf { it.km })
+    }
+
+    private fun onlineMs(from: Long, to: Long): Long {
+        val arr = try { org.json.JSONObject(WorkClock.json(this)).getJSONArray("intervals") }
+            catch (_: Exception) { org.json.JSONArray() }
+        var total = 0L
+        for (i in 0 until arr.length()) {
+            val interval = arr.optJSONObject(i) ?: continue
+            val start = maxOf(from, interval.optLong("s"))
+            val end = minOf(to, interval.optLong("e"))
+            if (end > start) total += end - start
+        }
+        return total
     }
 
     private fun periods(kind: Int): List<Period> {
@@ -266,7 +369,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun areas(rows: List<Rec>): List<Triple<String, Int, Double>> =
-        rows.groupBy { it.area }.map { (k, v) -> Triple(k, v.size, v.map { it.rpk }.average()) }
+        rows.groupBy { it.area }.map { (k, v) ->
+            val distance = v.sumOf { it.km }
+            Triple(k, v.size, if (distance > 0.0) v.sumOf { it.fare } / distance else 0.0)
+        }
             .sortedByDescending { it.second }
 
     private fun cfg() = getSharedPreferences("cfg", Context.MODE_PRIVATE)
@@ -279,6 +385,7 @@ class MainActivity : ComponentActivity() {
     private fun header(p: LinearLayout, title: String, sub: String) {
         val state = when {
             !OverlayService.running -> Triple("Scanner off", BAD, false)
+            OverlayService.projectionLost -> Triple("Scanner needs permission", MID, false)
             OverlayService.hidden -> Triple("Scanner hidden", MID, false)
             else -> Triple("Scanner on", OK, true)
         }
@@ -306,7 +413,7 @@ class MainActivity : ComponentActivity() {
         p.addView(progress(pct), mt(8))
         p.addView(split(f1(pct).substringBefore(".") + "% of target", "RM " + f2(max0(goal - a.fare)) + " to go"))
         p.addView(kp(listOf("Orders" to "${a.n}", "Distance" to f1(a.km) + " km", "RM / km" to (if (a.km > 0) f2(a.fare / a.km) else "-"))), mt(14))
-        val hrs = if (rows.isEmpty()) 0.0 else (rows.maxOf { it.id } - rows.minOf { it.id }) / 3600000.0
+        val hrs = onlineMs(start, System.currentTimeMillis()) / 3600000.0
         p.addView(kp(listOf("Fuel (est.)" to f2(fuel), "After fuel" to f2(net), "RM / hour" to (if (hrs >= 0.5) f2(net / hrs) else "-"))), mt(0))
 
         if (a.n > 0) {
@@ -425,14 +532,14 @@ class MainActivity : ComponentActivity() {
         val on = Settings.canDrawOverlays(this)
         p.addView(sectionLab("Scanner"), mt(16))
         val running = OverlayService.running
-        val status = when { !running -> "Off"; OverlayService.hidden -> "Hidden"; else -> "Ready" }
+        val status = when { !running -> "Off"; OverlayService.projectionLost -> "Needs permission"; OverlayService.hidden -> "Hidden"; else -> "Ready" }
         val sr = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(10)) }
         val sc = col()
         sc.addView(mono(status, 26f))
-        sc.addView(tv(when { !running -> "Start it, then open Grab."; OverlayService.hidden -> "Show it again, no new permission needed."; else -> "Open Route details and tap the chip." }, 13f, MUT, false))
+        sc.addView(tv(when { !running -> "Start it, then open Grab."; OverlayService.projectionLost -> "Android ended screen capture. Resume to grant it again."; OverlayService.hidden -> "Show it again, no new permission needed."; else -> "Open Route details and tap the chip." }, 13f, MUT, false))
         sr.addView(sc, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         sr.addView(Button(this).apply {
-            text = when { !running -> "Start scan"; OverlayService.hidden -> "Show chip"; else -> "Hide chip" }
+            text = when { !running -> "Start scan"; OverlayService.projectionLost -> "Resume scan"; OverlayService.hidden -> "Show chip"; else -> "Hide chip" }
             isAllCaps = false
             textSize = 15f
             setTypeface(typeface, Typeface.BOLD)
@@ -446,7 +553,7 @@ class MainActivity : ComponentActivity() {
             }
             setOnClickListener {
                 when {
-                    !running -> startFlow()
+                    !running || OverlayService.projectionLost -> startFlow()
                     OverlayService.hidden -> { startService(Intent(this@MainActivity, OverlayService::class.java).setAction(OverlayService.ACTION_SHOW)); OverlayService.hidden = false; render() }
                     else -> { startService(Intent(this@MainActivity, OverlayService::class.java).setAction(OverlayService.ACTION_HIDE)); OverlayService.hidden = true; render() }
                 }
@@ -458,6 +565,44 @@ class MainActivity : ComponentActivity() {
         p.addView(checkRow("Show over other apps", on, if (on) "Allowed" else "Tap to allow") { if (!on) openOverlaySettings() })
         p.addView(checkRow("Location", loc, if (loc) "Allowed" else "Asked on Start") { })
         p.addView(checkRow("Screen capture", running, if (running) "Running" else "Asked on Start") { })
+        val bonusOn = getSharedPreferences("4riders", Context.MODE_PRIVATE).getBoolean("bonus", true)
+        p.addView(checkRow("Include extra fare", bonusOn, if (bonusOn) "Included" else "Not included") {
+            getSharedPreferences("4riders", Context.MODE_PRIVATE).edit().putBoolean("bonus", !bonusOn).apply()
+            if (OverlayService.running) startService(Intent(this@MainActivity, OverlayService::class.java).setAction(OverlayService.ACTION_RECALCULATE))
+            toast(if (!bonusOn) "Extra fare will be included" else "Extra fare excluded")
+            render()
+        })
+        p.addView(sectionLab("Saved places"), mt(16))
+        val saved = AddressBook.all(this)
+        if (saved.length() == 0) p.addView(tv("Double-tap a pickup or drop-off in the floating scanner to save it here.", 12.5f, MUT), mt(4))
+        else for (i in 0 until saved.length()) {
+            val item = saved.optJSONObject(i) ?: continue
+            val r = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
+            val savedText = col().apply {
+                addView(tv(item.optString("name", "Saved place"), 14f, INK, true))
+                addView(tv(item.optString("address"), 11.5f, MUT))
+            }
+            r.addView(savedText, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            r.addView(Button(this).apply {
+                text = "MAP"
+                isAllCaps = false
+                setTextColor(BLUE)
+                background = null
+                setOnClickListener {
+                    val uri = Uri.parse("geo:0,0?q=" + Uri.encode(item.optString("address")))
+                    startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            })
+            r.addView(Button(this).apply {
+                text = "×"
+                textSize = 20f
+                setTextColor(BAD)
+                background = null
+                setOnClickListener { AddressBook.delete(this@MainActivity, i); render() }
+            })
+            p.addView(r)
+            p.addView(hair2())
+        }
         if (running) {
             p.addView(smallLink("Stop scanner completely") {
                 startService(Intent(this, OverlayService::class.java).setAction(OverlayService.ACTION_STOP))
@@ -474,13 +619,88 @@ class MainActivity : ComponentActivity() {
         p.addView(stepRow("Fuel cost", "RM per km, estimate", f2(c.getFloat("fuel", 0.14f).toDouble()), { bump("fuel", -0.01f, 0f) }, { bump("fuel", 0.01f, 0f) }))
         p.addView(stepRow("Daily target", "Shown on Today", "RM " + c.getFloat("goal", 200f).toInt(), { bump("goal", -10f, 0f) }, { bump("goal", 10f, 0f) }))
         p.addView(sectionLab("Data"), mt(14))
-        p.addView(tv("Your orders are saved on this phone only. Sync with the 4riders web app is not on yet.", 13f, MUT), mt(6))
+        p.addView(sectionLab("Cloud history"), mt(14))
+        p.addView(tv(if (CloudSync.signedIn()) {
+            "Signed in as ${CloudSync.userEmail().orEmpty()}. Orders and history sync to your account; offline changes will sync when you reconnect."
+        } else {
+            "Sign in to back up scanned orders and history, and sync them between your devices. Your phone keeps working offline."
+        }, 13f, MUT), mt(6))
+        p.addView(smallLink(if (CloudSync.signedIn()) "Manage cloud account" else "Sign in / create cloud account") { showCloudAccountDialog() })
+        p.addView(tv("Scanner and dashboard still use the same order records. Cloud access is restricted to the signed-in account.", 12.5f, MUT), mt(4))
         p.addView(smallLink("Clear all history") {
             Store.clear(this)
             toast("History cleared")
             render()
         })
         p.addView(tv("Take and Skip are saved in this app only. Nothing is pressed in Grab. Long press the chip to see the raw text.", 12.5f, MUT), mt(6))
+    }
+
+    private fun showCloudAccountDialog() {
+        if (!CloudSync.configured()) {
+            toast("Cloud setup is unavailable. Check the Firebase app configuration.")
+            return
+        }
+        if (CloudSync.signedIn()) {
+            android.app.AlertDialog.Builder(this)
+                .setTitle("Cloud account")
+                .setMessage("Signed in as ${CloudSync.userEmail().orEmpty()}. Your history is linked to this account.")
+                .setNegativeButton("Close", null)
+                .setPositiveButton("Sign out") { _, _ ->
+                    CloudSync.signOut()
+                    toast("Signed out. This phone’s local history stays here.")
+                    content.postDelayed({ render() }, 300)
+                }.show()
+            return
+        }
+        val form = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(22), dp(8), dp(22), 0)
+        }
+        val email = android.widget.EditText(this).apply {
+            hint = "Email address"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+            setSingleLine(true)
+            setTextColor(INK); setHintTextColor(MUT)
+        }
+        val password = android.widget.EditText(this).apply {
+            hint = "Password (6+ characters)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            setSingleLine(true)
+            setTextColor(INK); setHintTextColor(MUT)
+        }
+        form.addView(email, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        form.addView(password, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(52)))
+        val dialog = android.app.AlertDialog.Builder(this)
+            .setTitle("Sync your history")
+            .setMessage("Sign in on your other devices with the same account to see the same history.")
+            .setView(form)
+            .setNegativeButton("Later", null)
+            .setPositiveButton("Sign in", null)
+            .setNeutralButton("Create account", null)
+            .create()
+        dialog.setOnShowListener {
+            fun submit(create: Boolean) {
+                val address = email.text.toString().trim()
+                val secret = password.text.toString()
+                if (address.isBlank() || secret.length < 6) {
+                    toast("Enter a valid email and a password with at least 6 characters")
+                    return
+                }
+                CloudSync.signIn(address, secret, create) { error ->
+                    runOnUiThread {
+                        if (error != null) toast(error)
+                        else {
+                            dialog.dismiss()
+                            toast(if (create) "Account created · syncing your history" else "Signed in · syncing your history")
+                            content.postDelayed({ render() }, 500)
+                        }
+                    }
+                }
+            }
+            dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener { submit(false) }
+            dialog.getButton(android.app.AlertDialog.BUTTON_NEUTRAL).setOnClickListener { submit(true) }
+        }
+        dialog.show()
     }
 
     private fun wordFor(fare: Double, rpk: Double): String {
@@ -561,7 +781,22 @@ class MainActivity : ComponentActivity() {
             val rpk = fare / km
             val area = fArea.text.toString().trim().ifEmpty { "Unknown" }
             if (o != null && id != o.id) Store.delete(this, o.id)
-            Store.upsert(this, Rec(id, wordFor(fare, rpk), rpk, fare, km, area, dec))
+            val oldLegs = o?.legKm.orEmpty()
+            val target = Math.round(km * 10).toInt()
+            val sum = oldLegs.sumOf { Math.round(it * 10).toInt() }
+            val scaled = if (oldLegs.isEmpty()) emptyList() else {
+                var used = 0
+                oldLegs.mapIndexed { i, value ->
+                    val v = if (i == oldLegs.lastIndex) target - used else if (sum > 0) (target * Math.round(value * 10).toInt()) / sum else target / oldLegs.size
+                    used += v
+                    v.coerceAtLeast(0) / 10.0
+                }
+            }
+            val acceptedAt = if (dec == "T") o?.acceptedAt?.takeIf { it > 0 } ?: id else o?.acceptedAt ?: 0L
+            val completedAt = if (dec == "T") o?.completedAt?.takeIf { it > 0 } ?: System.currentTimeMillis() else o?.completedAt ?: 0L
+            val expectedKm = if (dec == "A") km else o?.expectedKm ?: 0.0
+            val expectedMinutes = if (dec == "A") (km / 24.0 * 60.0).coerceAtLeast(1.0) else o?.expectedMinutes ?: 0.0
+            Store.upsert(this, Rec(id, wordFor(fare, rpk), rpk, fare, km, area, dec, o?.st.orEmpty(), scaled, acceptedAt, completedAt, o?.actualKm ?: 0.0, expectedKm, expectedMinutes))
             dlg.dismiss()
             render()
         }, LinearLayout.LayoutParams(0, dp(52), 1f).apply { marginStart = dp(5) })

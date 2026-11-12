@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "663047865758",
+    "project_id": "riders-2d130",
+    "storage_bucket": "riders-2d130.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:663047865758:android:437cec8f4d7f3427dc828f",
+        "android_client_info": {
+          "package_name": "my.fouriders.scan"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAxaMivlqfntssPQ2zdYh0Yr-EdflBz58I"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

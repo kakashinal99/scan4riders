@@ -1,0 +1,26 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/orders/{orderId} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      allow create, update: if request.auth != null
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly([
+          'id', 'word', 'rpk', 'fare', 'km', 'area', 'decision', 'st',
+          'legKm', 'acceptedAt', 'completedAt', 'actualKm'
+        ])
+        && request.resource.data.keys().hasAll([
+          'id', 'word', 'rpk', 'fare', 'km', 'area', 'decision', 'st',
+          'legKm', 'acceptedAt', 'completedAt', 'actualKm'
+        ])
+        && request.resource.data.id is int
+        && request.resource.data.fare is number
+        && request.resource.data.km is number
+        && request.resource.data.area is string
+        && request.resource.data.decision is string
+        && request.resource.data.st is string
+        && request.resource.data.legKm is list
+        && request.resource.data.legKm.size() <= 50;
+    }
+  }
+}
