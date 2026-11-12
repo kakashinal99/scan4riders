@@ -11,6 +11,9 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK platform and build tools
+        run: sdkmanager --install "platforms;android-37" "build-tools;36.0.0"
       - name: Build debug APK
         run: |
           chmod +x gradlew
