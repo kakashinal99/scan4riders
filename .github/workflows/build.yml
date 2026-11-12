@@ -13,7 +13,7 @@ jobs:
           java-version: 17
       - uses: android-actions/setup-android@v4
         with:
-          packages: 'platforms;android-37 build-tools;36.0.0'
+          packages: 'platforms;android-35 build-tools;35.0.0'
       - name: Build debug APK
         run: |
           chmod +x gradlew
