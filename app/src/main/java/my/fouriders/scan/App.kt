@@ -2,12 +2,15 @@ package my.fouriders.scan
 
 import android.app.Application
 import android.content.Context
+import com.google.mlkit.common.MlKit
 import java.io.PrintWriter
 import java.io.StringWriter
 
 class App : Application() {
     override fun onCreate() {
         super.onCreate()
+        // Ensure ML Kit is ready before OverlayService creates its text recognizer.
+        MlKit.initialize(this)
         val old = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             try {
