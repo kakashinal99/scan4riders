@@ -61,6 +61,7 @@ class MainActivity : ComponentActivity() {
     private var tab = 0
     private var filt = 0
     private var per = 0
+    private var nativeSettingsOnly = false
     private lateinit var content: ScrollView
     private lateinit var navRow: LinearLayout
     private lateinit var prototype: WebView
@@ -110,12 +111,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showNativeSettings() {
+        nativeSettingsOnly = true
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(BG) }
         content = ScrollView(this)
         root.addView(content, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        root.addView(hair(), LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
-        navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        root.addView(navRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(60)))
         setContentView(root)
         tab = 3
         render()
@@ -123,8 +122,8 @@ class MainActivity : ComponentActivity() {
 
     private fun render() {
         val y = content.scrollY
-        navRow.removeAllViews()
-        listOf("Today", "Orders", "History", "Settings").forEachIndexed { i, name ->
+        if (!nativeSettingsOnly) navRow.removeAllViews()
+        if (!nativeSettingsOnly) listOf("Today", "Orders", "History", "Settings").forEachIndexed { i, name ->
             val on = i == tab
             val cell = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
@@ -527,7 +526,7 @@ class MainActivity : ComponentActivity() {
             isAllCaps = false
             setTextColor(BLUE)
             background = GradientDrawable().apply { cornerRadius = dp(12).toFloat(); setColor(SOFTBG) }
-            setOnClickListener { setContentView(prototype); prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) } }
+            setOnClickListener { nativeSettingsOnly = false; setContentView(prototype); prototype.post { prototype.evaluateJavascript("refreshNativeData()", null) } }
         }, mt(10))
         val on = Settings.canDrawOverlays(this)
         p.addView(sectionLab("Scanner"), mt(16))
@@ -561,6 +560,59 @@ class MainActivity : ComponentActivity() {
         }, LinearLayout.LayoutParams(dp(132), dp(50)))
         p.addView(sr)
         p.addView(hair2())
+
+        p.addView(sectionLab("Coverage zone"), mt(16))
+        p.addView(tv("Set a center and a maximum driving distance. Every pickup and drop-off is checked by road distance from this point.", 12.5f, MUT), mt(4))
+        val centerLabel = c.getString("zoneLabel", "").orEmpty()
+        p.addView(tv(if (centerLabel.isBlank()) "Center point not set" else "Center: $centerLabel", 13f, if (centerLabel.isBlank()) MID else INK, true), mt(8))
+        val centerInput = input(centerLabel, false).apply {
+            hint = "Search address or place name"
+            setSingleLine(true)
+            typeface = Typeface.DEFAULT
+            textSize = 15f
+            setHintTextColor(MUT)
+        }
+        p.addView(centerInput, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)).apply { topMargin = dp(8) })
+        p.addView(Button(this).apply {
+            text = "Find center on map"
+            isAllCaps = false
+            setTextColor(BG)
+            background = GradientDrawable().apply { cornerRadius = dp(11).toFloat(); setColor(BLUE) }
+            setOnClickListener {
+                val query = centerInput.text.toString().trim()
+                if (query.length < 4) { toast("Enter a full place name or address first"); return@setOnClickListener }
+                toast("Finding map matches…")
+                Thread {
+                    val hits = Geo.suggestions(this, Stop(1, false, query, query), null)
+                    runOnUiThread {
+                        if (hits.isEmpty()) { toast("No map matches found. Add a more complete address."); return@runOnUiThread }
+                        val labels = hits.map { h -> "${h.label.ifBlank { query }}\n${String.format(Locale.US, "%.5f, %.5f", h.p.lat, h.p.lon)}" }.toTypedArray()
+                        android.app.AlertDialog.Builder(this)
+                            .setTitle("Choose your center point")
+                            .setItems(labels) { _, which ->
+                                val hit = hits[which]
+                                c.edit().putFloat("zoneLat", hit.p.lat.toFloat()).putFloat("zoneLon", hit.p.lon.toFloat())
+                                    .putString("zoneLabel", hit.label.ifBlank { query }).apply()
+                                toast("Center point saved")
+                                render()
+                            }
+                            .setNegativeButton("Cancel", null).show()
+                    }
+                }.start()
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(46)).apply { topMargin = dp(8) })
+        val zoneOn = c.getBoolean("zoneEnabled", false)
+        p.addView(checkRow("Enforce coverage zone", zoneOn, if (zoneOn) "On · outside stops become REJECT" else "Off") {
+            if (!zoneOn && (centerLabel.isBlank() || !c.getFloat("zoneLat", Float.NaN).isFinite() || !c.getFloat("zoneLon", Float.NaN).isFinite())) {
+                toast("Find and save a center point first")
+                return@checkRow
+            }
+            c.edit().putBoolean("zoneEnabled", !zoneOn).apply()
+            render()
+        })
+        p.addView(stepRow("Maximum road distance", "From center to each pickup and drop-off", f1(c.getFloat("zoneMaxKm", 8f).toDouble()) + " km",
+            { bump("zoneMaxKm", -0.5f, 0.5f) }, { bump("zoneMaxKm", 0.5f, 0.5f) }))
+        p.addView(tv("Distances use driving routes. If a stop or road route cannot be verified, the scanner flags the zone check instead of guessing.", 11.5f, MUT), mt(4))
         val loc = checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         p.addView(checkRow("Show over other apps", on, if (on) "Allowed" else "Tap to allow") { if (!on) openOverlaySettings() })
         p.addView(checkRow("Location", loc, if (loc) "Allowed" else "Asked on Start") { })
@@ -813,7 +865,7 @@ class MainActivity : ComponentActivity() {
 
     private fun bump(key: String, d: Float, min: Float) {
         val c = cfg()
-        val def = when (key) { "min" -> 4f; "rej" -> 0.9f; "ok" -> 1.2f; "fuel" -> 0.14f; else -> 200f }
+        val def = when (key) { "min" -> 4f; "rej" -> 0.9f; "ok" -> 1.2f; "fuel" -> 0.14f; "zoneMaxKm" -> 8f; else -> 200f }
         val v = Math.round((c.getFloat(key, def) + d) * 100f) / 100f
         c.edit().putFloat(key, if (v < min) min else v).apply()
         render()

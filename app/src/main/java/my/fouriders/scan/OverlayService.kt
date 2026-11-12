@@ -103,7 +103,8 @@ class OverlayService : Service() {
         val label: String, var src: String, var km: Double, var unknown: Boolean,
         val stop: Stop? = null, val from: String = "", var q: Int = 0, var how: String = "",
         var candidate: Geo.Hit? = null, var point: Geo.P? = null,
-        var refPoint: Geo.P? = null, var confirmedLocation: Boolean = false
+        var refPoint: Geo.P? = null, var confirmedLocation: Boolean = false,
+        var centerKm: Double? = null
     )
 
     private class Verdict(
@@ -137,6 +138,7 @@ class OverlayService : Service() {
     private var state = St.IDLE
     private var legs: List<Leg> = emptyList()
     private var routeOrigin: Geo.P? = null
+    private var zoneAlertId = 0
     private var uncertain = false
     private var tookWhat: String? = null
     private var showMore = false
@@ -771,6 +773,18 @@ class OverlayService : Service() {
             val chain = ArrayList<Geo.P?>()
             chain.add(me)
             trustedHits.forEach { chain.add(it?.p) }
+            val centerCfg = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+            val zoneEnabled = centerCfg.getBoolean("zoneEnabled", false)
+            val zoneCenter = if (zoneEnabled && centerCfg.getString("zoneLabel", "").orEmpty().isNotBlank()) {
+                val lat = centerCfg.getFloat("zoneLat", Float.NaN).toDouble()
+                val lon = centerCfg.getFloat("zoneLon", Float.NaN).toDouble()
+                if (lat.isFinite() && lon.isFinite()) Geo.P(lat, lon) else null
+            } else null
+            val zoneIndexes = trustedHits.indices.filter { trustedHits[it] != null }
+            val zoneRoadKm = if (zoneCenter != null && zoneIndexes.isNotEmpty())
+                Geo.roadDistancesFrom(zoneCenter, zoneIndexes.mapNotNull { trustedHits[it]?.p }) else null
+            val zoneByStop = HashMap<Int, Double?>()
+            zoneIndexes.forEachIndexed { ix, stopIx -> zoneByStop[stopIx] = zoneRoadKm?.getOrNull(ix) }
             val out = ArrayList<Leg>()
             val all = chain.filterNotNull()
             val routed: List<Double>? = if (all.size == chain.size) Geo.routeLegs(all) else null
@@ -785,18 +799,19 @@ class OverlayService : Service() {
                 val how = listOfNotNull(hitA, hitB).maxByOrNull { it.level }?.how.orEmpty()
                 if (a == null || b == null) {
                     val why = if (a == null && i == 0) "No GPS, set km" else "Address not found, set km"
-                    out.add(Leg(label, why, 0.0, true, stops[i], from, 2, "Needs location check", hits[i], null, a, false))
+                    out.add(Leg(label, why, 0.0, true, stops[i], from, 2, "Needs location check", hits[i], null, a, false, zoneByStop[i]))
                 } else if (routed != null) {
-                    out.add(Leg(label, if (i == 0) "GPS + map" else "Map estimate", rnd(routed[i]), false, stops[i], from, q, how, hitB, b, a, true))
+                    out.add(Leg(label, if (i == 0) "GPS + map" else "Map estimate", rnd(routed[i]), false, stops[i], from, q, how, hitB, b, a, true, zoneByStop[i]))
                 } else {
                     // Do not fan out failed public OSRM requests; use a visibly rough fallback instead.
-                    out.add(Leg(label, "Rough estimate (no map)", rnd(Geo.rough(a, b)), false, stops[i], from, 2, "no map, straight line x 1.35", hitB, b, a, true))
+                    out.add(Leg(label, "Rough estimate (no map)", rnd(Geo.rough(a, b)), false, stops[i], from, 2, "no map, straight line x 1.35", hitB, b, a, true, zoneByStop[i]))
                 }
             }
             handler.post {
                 routeOrigin = me
                 legs = out
                 record()
+                if (zoneEnabled) notifyOutsideZone()
                 showResult()
             }
         }
@@ -813,6 +828,18 @@ class OverlayService : Service() {
         val includeBonus = getSharedPreferences("4riders", Context.MODE_PRIVATE).getBoolean("bonus", true)
         val fare = (Session.fare ?: 0.0) + (if (includeBonus && bonus != null) bonus else 0.0)
         val km = legs.sumOf { it.km }
+        val zoneOn = c.getBoolean("zoneEnabled", false)
+        val zoneLimit = c.getFloat("zoneMaxKm", 8f).toDouble()
+        val outside = if (zoneOn) legs.filter { it.centerKm != null && it.centerKm!! > zoneLimit } else emptyList()
+        if (outside.isNotEmpty()) {
+            val details = outside.joinToString("; ") { "${stopOrdinal(it)} ${f1(it.centerKm!!)} km" }
+            return Verdict("REJECT", RED, if (km > 0.0) fare / km else null, fare, km,
+                "Outside coverage zone (limit ${f1(zoneLimit)} km): $details from center.", false)
+        }
+        if (zoneOn && legs.any { it.centerKm == null }) {
+            return Verdict("CHECK ZONE", GREY, if (km > 0.0) fare / km else null, fare, km,
+                "Could not verify every stop by road from your center. Confirm locations or retry the scan.", false)
+        }
         if (legs.any { it.unknown } || km <= 0.0) {
             return Verdict("SET KM", GREY, null, fare, km, "Some distances are missing. Set them with + and −.", false)
         }
@@ -824,6 +851,35 @@ class OverlayService : Service() {
             rpk < ok -> Verdict("CONSIDER", ORANGE, rpk, fare, km, "Weigh traffic, waiting time and the next order.", near)
             else -> Verdict("ACCEPT", GREEN, rpk, fare, km, "Good to take, but still check traffic.", near)
         }
+    }
+
+    private fun stopOrdinal(leg: Leg): String {
+        val target = leg.stop
+        val index = legs.takeWhile { it !== leg }.count { it.stop?.collect == target?.collect } + 1
+        return "${if (target?.collect == true) "Pickup" else "Drop-off"} $index"
+    }
+
+    private fun notifyOutsideZone() {
+        val c = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        if (!c.getBoolean("zoneEnabled", false)) return
+        val limit = c.getFloat("zoneMaxKm", 8f).toDouble()
+        val outside = legs.filter { it.centerKm != null && it.centerKm!! > limit }
+        if (outside.isEmpty()) return
+        val text = outside.joinToString(" · ") { "${stopOrdinal(it)} ${f1(it.centerKm!!)} km" }
+        shortToast("Outside zone: $text (limit ${f1(limit)} km)")
+        val nm = getSystemService(NotificationManager::class.java)
+        val channelId = "zone_alerts"
+        if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(
+            NotificationChannel(channelId, "Coverage zone alerts", NotificationManager.IMPORTANCE_DEFAULT)
+        )
+        try {
+            nm.notify(++zoneAlertId + 100, Notification.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle("Order outside your zone")
+                .setContentText("$text from center · limit ${f1(limit)} km")
+                .setStyle(Notification.BigTextStyle().bigText("$text from center. Maximum is ${f1(limit)} km by road."))
+                .setAutoCancel(true).build())
+        } catch (_: SecurityException) { /* Overlay/card and toast still show the same alert. */ }
     }
 
     private fun showResult() {
@@ -1268,6 +1324,13 @@ class OverlayService : Service() {
                 letterSpacing = .08f; setPadding(0, 0, 0, dp(3)); contentDescription = "Confirm location for $ordinal"
                 setOnClickListener { openLocationCheck(leg) }
             }, matchW())
+            if (getSharedPreferences("cfg", Context.MODE_PRIVATE).getBoolean("zoneEnabled", false)) {
+                val limit = getSharedPreferences("cfg", Context.MODE_PRIVATE).getFloat("zoneMaxKm", 8f).toDouble()
+                val zoneText = leg.centerKm?.let { "${f1(it)} km from center · ${if (it > limit) "OUTSIDE LIMIT" else "within zone"}" }
+                    ?: "Center road distance unavailable"
+                locationBlock.addView(tv(zoneText, 8f, if (leg.centerKm != null && leg.centerKm!! > limit) D_RED else D_MUTED, true)
+                    .apply { setPadding(0, 0, dp(3), dp(4)); maxLines = 2 }, matchW())
+            }
             row.addView(locationBlock, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             val address = leg.stop?.let { Parser.addressForCopy(it) }.orEmpty()
             row.addView(TextView(this).apply {
@@ -1335,6 +1398,11 @@ class OverlayService : Service() {
             maxLines = 2
             contentDescription = routeNote
         }, matchW())
+        if (getSharedPreferences("cfg", Context.MODE_PRIVATE).getBoolean("zoneEnabled", false)) {
+            box.addView(tv(v.note, 9.5f, if (v.word == "REJECT") D_RED else D_MUTED, v.word == "REJECT").apply {
+                setPadding(0, dp(3), 0, dp(4)); maxLines = 3
+            }, matchW())
+        }
 
         val mapsStops = legs.mapNotNull { leg ->
             val stop = leg.stop ?: return@mapNotNull null
@@ -1585,6 +1653,12 @@ class OverlayService : Service() {
         pool.execute {
             val points = buildList { prev?.let(::add); add(hit.p); if (recalcNext) next?.let(::add) }
             val distances = if (points.size >= 2) Geo.routeLegs(points) else null
+            val zoneCfg = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+            val zoneCenter = if (zoneCfg.getBoolean("zoneEnabled", false) && zoneCfg.getString("zoneLabel", "").orEmpty().isNotBlank())
+                Geo.P(zoneCfg.getFloat("zoneLat", Float.NaN).toDouble(), zoneCfg.getFloat("zoneLon", Float.NaN).toDouble()) else null
+            val zoneIndexes = legs.indices.filter { i -> (if (i == index) hit.p else legs[i].point) != null }
+            val zoneDistances = if (zoneCenter != null) Geo.roadDistancesFrom(zoneCenter,
+                zoneIndexes.map { i -> if (i == index) hit.p else legs[i].point!! }) else null
             handler.post {
                 if (distances != null) {
                     var di = 0
@@ -1597,8 +1671,10 @@ class OverlayService : Service() {
                     leg.km = rnd(Geo.rough(prev, hit.p)); leg.unknown = false; leg.src = "Rough estimate (no map)"
                 }
                 leg.q = 0
+                zoneIndexes.forEachIndexed { zi, li -> legs[li].centerKm = zoneDistances?.getOrNull(zi) }
                 saveRec(null)
                 refresh()
+                if (hasResult) notifyOutsideZone()
                 shortToast("Location confirmed")
             }
         }

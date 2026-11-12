@@ -14,8 +14,8 @@ android {
         applicationId = "my.fouriders.scan"
         minSdk = 30
         targetSdk = 34
-        versionCode = 35
-        versionName = "1.5.1"
+        versionCode = 36
+        versionName = "1.5.2"
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

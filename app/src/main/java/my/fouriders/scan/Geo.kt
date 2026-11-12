@@ -206,6 +206,29 @@ object Geo {
         null
     }
 
+    /** Driving-road km from one saved center to each stop, in one OSRM table request. */
+    fun roadDistancesFrom(center: P, destinations: List<P>): List<Double?>? {
+        if (destinations.isEmpty()) return emptyList()
+        return try {
+        val wait = 1100L - (System.currentTimeMillis() - lastOsrm)
+        if (wait > 0) Thread.sleep(wait)
+        lastOsrm = System.currentTimeMillis()
+        val points = listOf(center) + destinations
+        val coords = points.joinToString(";") { "${it.lon},${it.lat}" }
+        val dests = (1..destinations.size).joinToString(";")
+        val url = "https://router.project-osrm.org/table/v1/driving/$coords?sources=0&destinations=$dests&annotations=distance"
+        val root = JSONObject(get(url))
+        if (root.optString("code") != "Ok") null else {
+            val row = root.getJSONArray("distances").optJSONArray(0) ?: return null
+            (0 until destinations.size).map { i ->
+                if (row.isNull(i)) null else row.getDouble(i) / 1000.0
+            }
+        }
+        } catch (e: Exception) {
+            null
+        }
+    }
+
     /** Straight line x 1.35, used only when the map service cannot be reached. */
     fun rough(a: P, b: P): Double {
         val r = 6371.0
