@@ -1918,6 +1918,7 @@ class OverlayService : Service() {
     }
 
     private fun f2(x: Double): String = String.format(Locale.US, "%.2f", x)
+    private fun f1(x: Double): String = String.format(Locale.US, "%.1f", x)
     private fun toast(s: String) = Toast.makeText(this, s, Toast.LENGTH_LONG).show()
     private fun dp(v: Int) = (v * resources.displayMetrics.density).toInt()
 }

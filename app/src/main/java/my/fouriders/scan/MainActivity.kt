@@ -583,11 +583,11 @@ class MainActivity : ComponentActivity() {
                 if (query.length < 4) { toast("Enter a full place name or address first"); return@setOnClickListener }
                 toast("Finding map matches…")
                 Thread {
-                    val hits = Geo.suggestions(this, Stop(1, false, query, query), null)
+                    val hits = Geo.suggestions(this@MainActivity, Stop(1, false, query, query), null)
                     runOnUiThread {
                         if (hits.isEmpty()) { toast("No map matches found. Add a more complete address."); return@runOnUiThread }
                         val labels = hits.map { h -> "${h.label.ifBlank { query }}\n${String.format(Locale.US, "%.5f, %.5f", h.p.lat, h.p.lon)}" }.toTypedArray()
-                        android.app.AlertDialog.Builder(this)
+                        android.app.AlertDialog.Builder(this@MainActivity)
                             .setTitle("Choose your center point")
                             .setItems(labels) { _, which ->
                                 val hit = hits[which]
