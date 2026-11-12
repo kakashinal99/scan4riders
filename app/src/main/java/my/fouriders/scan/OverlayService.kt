@@ -1320,7 +1320,7 @@ class OverlayService : Service() {
             marginEnd = dp(6)
         })
         val mins = Math.round(v.km / KM_PER_H * 60).toInt().coerceAtLeast(1)
-        total.addView(tv("◷ $mins min est.", 11f, D_WHITE, true).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        total.addView(tv("◷ ${formatDurationMinutes(mins)} est.", 11f, D_WHITE, true).apply { gravity = Gravity.END }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         box.addView(View(this).apply { setBackgroundColor(D_LINE) }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(1)))
         box.addView(total, matchW())
         val routeNote = when {
@@ -1335,6 +1335,25 @@ class OverlayService : Service() {
             maxLines = 2
             contentDescription = routeNote
         }, matchW())
+
+        val mapsStops = legs.mapNotNull { leg ->
+            val stop = leg.stop ?: return@mapNotNull null
+            (Parser.addressForCopy(stop) ?: stop.name).trim().takeIf { it.isNotBlank() }
+        }
+        box.addView(TextView(this).apply {
+            text = "↗  OPEN FULL ROUTE IN GOOGLE MAPS  ·  ${mapsStops.size} STOPS"
+            textSize = 10f
+            setTextColor(D_MINT)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER
+            includeFontPadding = false
+            contentDescription = "Open current location and all ${mapsStops.size} pickup and drop-off stops in Google Maps"
+            background = dBox(0xFF14251C.toInt(), 0xFF385146.toInt(), 12)
+            setPadding(dp(10), dp(11), dp(10), dp(11))
+            setOnClickListener { openRouteInGoogleMaps(mapsStops) }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = dp(7)
+        })
 
         val acceptedAt = Store.get(this, prefs.getLong("curId", 0L))?.acceptedAt ?: 0L
         box.addView(tv(projectionText(v, acceptedAt), 9.5f, D_MUTED).apply {
@@ -1425,7 +1444,70 @@ class OverlayService : Service() {
             acceptedAt > 0L -> " · Goal-time estimate after another completed order"
             else -> " · If accepted, goal-time estimate after your first completed order"
         }
-        return "Est. complete ${clock.format(java.util.Date(finishAt))} · $remainingMins min left$target"
+        return "Est. complete ${clock.format(java.util.Date(finishAt))} · ${formatDurationMinutes(remainingMins)} left$target"
+    }
+
+    private fun formatDurationMinutes(minutes: Int): String {
+        val safeMinutes = minutes.coerceAtLeast(1)
+        val hours = safeMinutes / 60
+        val remainder = safeMinutes % 60
+        return when {
+            hours == 0 -> "$safeMinutes min"
+            remainder == 0 -> "${hours}h"
+            else -> "${hours}h ${remainder}m"
+        }
+    }
+
+    /** Google Maps URLs allow up to nine intermediate waypoints, so split longer orders into selectable legs. */
+    private fun openRouteInGoogleMaps(stops: List<String>) {
+        if (stops.isEmpty()) {
+            shortToast("No scanned stops to route")
+            return
+        }
+        val segments = stops.chunked(10)
+        if (segments.size == 1) {
+            launchGoogleMapsSegment(routeOrigin?.let { "${it.lat},${it.lon}" }, segments.first())
+            return
+        }
+        val labels = segments.mapIndexed { index, part ->
+            val first = index * 10 + 1
+            val last = first + part.size - 1
+            "Part ${index + 1}: stops $first–$last"
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Route has ${stops.size} stops")
+            .setMessage("Google Maps supports up to 10 scanned stops per route. Choose a consecutive route segment; the next segment starts from the previous segment's last stop.")
+            .setItems(labels) { _, which ->
+                val origin = if (which == 0) routeOrigin?.let { "${it.lat},${it.lon}" } else stops[which * 10 - 1]
+                launchGoogleMapsSegment(origin, segments[which])
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun launchGoogleMapsSegment(origin: String?, stops: List<String>) {
+        if (stops.isEmpty()) return
+        val builder = Uri.Builder()
+            .scheme("https")
+            .authority("www.google.com")
+            .appendPath("maps")
+            .appendPath("dir")
+            .appendQueryParameter("api", "1")
+        if (!origin.isNullOrBlank()) builder.appendQueryParameter("origin", origin)
+        builder.appendQueryParameter("destination", stops.last())
+        val waypoints = stops.dropLast(1)
+        if (waypoints.isNotEmpty()) builder.appendQueryParameter("waypoints", waypoints.joinToString("|"))
+        builder.appendQueryParameter("travelmode", "two-wheeler")
+        val url = builder.build()
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, url).setPackage("com.google.android.apps.maps").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (_: Exception) {
+            try {
+                startActivity(Intent(Intent.ACTION_VIEW, url).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (_: Exception) {
+                shortToast("Could not open Google Maps")
+            }
+        }
     }
 
     private fun adjust(leg: Leg, d: Double) {
